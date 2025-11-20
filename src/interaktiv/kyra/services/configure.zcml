@@ -1,0 +1,28 @@
+<configure
+        xmlns="http://namespaces.zope.org/zope"
+        xmlns:zcml="http://namespaces.zope.org/zcml"
+        xmlns:plone="http://namespaces.plone.org/plone"
+>
+
+    <!-- Include for plone:service directive -->
+    <include package="plone.rest" file="meta.zcml"/>
+
+    <plone:service
+            method="GET"
+            factory=".prompts.PromptsGet"
+            for="plone.dexterity.interfaces.IDexterityContent"
+            layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+            permission="interaktiv.kyra.prompts.get"
+            name="prompts"
+    />
+
+    <plone:service
+            method="POST"
+            factory=".prompts.PromptsPost"
+            for="plone.dexterity.interfaces.IDexterityContent"
+            layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+            permission="interaktiv.kyra.prompts.post"
+            name="prompts"
+    />
+
+</configure>

@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<rolemap>
+  <permissions>
+    <permission name="AIAssistant: Get Prompts" acquire="False">
+      <role name="Editor"/>
+      <role name="Owner"/>
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+    <permission name="AIAssistant: Post Prompts" acquire="False">
+      <role name="Editor"/>
+      <role name="Owner"/>
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+    <permission name="AIAssistant: Manage Settings" acquire="False">
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+  </permissions>
+</rolemap>

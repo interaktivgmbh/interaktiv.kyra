@@ -1,0 +1,50 @@
+#--- PLEASE EDIT THE LINES BELOW CORRECTLY ---
+#SOME DESCRIPTIVE TITLE.
+#FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: 2025-10-02 13:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI +ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0\n"
+"Language-Code: en\n"
+"Language-Name: English\n"
+"Preferred-Encodings: utf-8 latin1\n"
+"Domain: interaktiv.kyra\n"
+
+#: ../registry/ai_assistant.py:9
+msgid "AI Assistant Service URL"
+msgstr ""
+
+#: ../configure.zcml:19
+msgid "Installs the interaktiv.kyra add-on."
+msgstr ""
+
+#: ../registry/ai_assistant.py:16
+msgid "Keycloak URL"
+msgstr ""
+
+#: ../registry/ai_assistant.py:17
+msgid "The Keycloak URL"
+msgstr ""
+
+#: ../registry/ai_assistant.py:10
+msgid "The URL of the AI Assistant Service"
+msgstr ""
+
+#: ../configure.zcml:28
+msgid "Uninstalls the interaktiv.kyra add-on."
+msgstr ""
+
+#: ../configure.zcml:19
+msgid "interaktiv.kyra"
+msgstr ""
+
+#: ../configure.zcml:28
+msgid "interaktiv.kyra (uninstall)"
+msgstr ""

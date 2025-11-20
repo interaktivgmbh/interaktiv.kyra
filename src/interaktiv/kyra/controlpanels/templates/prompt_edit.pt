@@ -1,0 +1,130 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      lang="en"
+      metal:use-macro="context/prefs_main_template/macros/master"
+      i18n:domain="interaktiv.kyra">
+
+<head>
+  <metal:styleslot fill-slot="style_slot">
+    <link rel="stylesheet" type="text/css" href="++theme++interaktiv.kyra/css/style.css" />
+  </metal:styleslot>
+</head>
+
+<body>
+<metal:main metal:fill-slot="prefs_configlet_main">
+
+  <tal:prompt define="prompt python: view.get_prompt()">
+    <tal:has-prompt condition="python: prompt">
+      <header>
+        <h1 class="documentFirstHeading" i18n:translate="trans_heading_edit_prompt">Edit Prompt</h1>
+      </header>
+
+      <form method="post" enctype="multipart/form-data" tal:attributes="action python: request.getURL()" tal:define="metadata python: prompt.get('metadata', {})">
+        <input type="hidden" name="action" value="update" />
+        <input type="hidden" name="prompt_id" tal:attributes="value python: prompt['id']" />
+
+        <div class="field">
+          <label for="name" i18n:translate="trans_label_prompt_name">Name:</label>
+          <input type="text" id="name" name="name" required="required" tal:attributes="value python: prompt.get('name', '')" />
+        </div>
+
+        <div class="field">
+          <label for="description" i18n:translate="trans_label_prompt_description">Description:</label>
+          <textarea id="description" name="description" rows="3">${python: prompt.get('description', '')}</textarea>
+        </div>
+
+        <div class="field">
+          <label for="prompt" i18n:translate="trans_label_prompt_text">Prompt Text:</label>
+          <textarea id="prompt" name="prompt" required="required" rows="10">${python: prompt.get('prompt', '')}</textarea>
+        </div>
+
+        <div class="field">
+          <label for="categories" i18n:translate="trans_label_prompt_categories">Categories (comma-separated):</label>
+          <input type="text" id="categories" name="categories" tal:attributes="value python: ', '.join(metadata.get('categories', []))" />
+        </div>
+
+        <div class="field">
+          <label for="metadata_action" i18n:translate="trans_label_prompt_action">Action</label>
+          <select id="metadata_action" name="metadata_action">
+            <option value="replace" tal:attributes="selected python: 'selected' if metadata.get('action') == 'replace' else None" i18n:translate="trans_option_action_replace">Replace</option>
+            <option value="append" tal:attributes="selected python: 'selected' if metadata.get('action') == 'append' else None" i18n:translate="trans_option_action_append">Append</option>
+          </select>
+        </div>
+
+        <fieldset class="file-upload-section">
+          <legend i18n:translate="trans_legend_upload_files">Upload Files (Optional)</legend>
+          <div class="field">
+            <label for="file_upload" i18n:translate="trans_label_select_files">Select Files:</label>
+            <input type="file" id="file_upload" name="file_upload" multiple="multiple" />
+            <p class="help-text" i18n:translate="trans_help_file_upload">
+              Upload documents, images, or other files to provide context for this prompt.
+            </p>
+          </div>
+        </fieldset>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" i18n:translate="trans_button_save_changes">Save Changes</button>
+          <a tal:attributes="href python: context.absolute_url() + '/@@ai-prompt-manager'" class="btn btn-secondary" i18n:translate="trans_button_cancel">Cancel</a>
+        </div>
+      </form>
+
+      <!-- Files List -->
+      <hr />
+      <h2 i18n:translate="trans_heading_attached_files">Attached Files</h2>
+
+      <tal:files define="files python: view.get_files()">
+        <tal:has-files condition="python: files">
+          <table class="listing">
+            <thead>
+              <tr>
+                <th i18n:translate="trans_table_header_filename">Filename</th>
+                <th i18n:translate="trans_table_header_size">Size</th>
+                <th i18n:translate="trans_table_header_uploaded">Uploaded</th>
+                <th i18n:translate="trans_table_header_actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr tal:condition="files" tal:repeat="file files">
+                <td>${python: file.get('filename', 'Unknown')}</td>
+                <td>${python: file.get('size_formatted', 'Unknown')}</td>
+                <td>${python: file.get('upload_date', 'Unknown')}</td>
+                <td class="form-actions">
+                  <!-- Download Button -->
+                  <form method="post" tal:attributes="action python: request.getURL()">
+                    <input type="hidden" name="prompt_id" tal:attributes="value python: prompt['id']" />
+                    <input type="hidden" name="action" value="download_file" />
+                    <input type="hidden" name="file_id" tal:attributes="value python: file['id']" />
+                    <input type="hidden" name="filename" tal:attributes="value python: file.get('filename', 'download')" />
+                    <button type="submit" class="btn btn-sm btn-primary" i18n:translate="trans_button_download">Download</button>
+                  </form>
+                  <!-- Delete Button -->
+                  <form method="post" tal:attributes="action python: request.getURL()">
+                    <input type="hidden" name="prompt_id" tal:attributes="value python: prompt['id']" />
+                    <input type="hidden" name="action" value="delete_file" />
+                    <input type="hidden" name="file_id" tal:attributes="value python: file['id']" />
+                    <button type="submit" class="btn btn-sm btn-danger" i18n:translate="trans_button_delete">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </tal:has-files>
+
+        <tal:no-files condition="python: not files">
+          <p class="discreet" i18n:translate="trans_no_files_attached">No files attached to this prompt yet.</p>
+        </tal:no-files>
+      </tal:files>
+
+    </tal:has-prompt>
+
+    <tal:no-prompt condition="python: not prompt">
+      <p class="error" i18n:translate="trans_error_prompt_not_loaded">Prompt could not be loaded.</p>
+      <a tal:attributes="href python: context.absolute_url() + '/@@ai-prompt-manager'" i18n:translate="trans_link_back_to_overview">Back to Overview</a>
+    </tal:no-prompt>
+  </tal:prompt>
+
+</metal:main>
+</body>
+</html>

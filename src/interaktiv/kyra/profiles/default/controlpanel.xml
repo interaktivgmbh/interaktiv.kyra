@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<object name="portal_controlpanel"
+        xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+        i18n:domain="interaktiv.kyra"
+        purge="False">
+
+    <!-- AI Assistant Settings -->
+    <configlet
+        title="trans_label_controlpanel_ai_assistant_settings"
+        action_id="ai-assistant-settings"
+        appId="interaktiv.kyra"
+        category="Products"
+        condition_expr=""
+        icon_expr="string:robot"
+        url_expr="string:${portal_url}/@@ai-assistant-settings"
+        visible="True"
+        i18n:attributes="title">
+        <permission>Manage portal</permission>
+    </configlet>
+
+    <!-- AI Prompt Manager -->
+    <configlet
+        title="trans_label_controlpanel_ai_prompt_manager"
+        action_id="ai-prompt-manager"
+        appId="interaktiv.kyra"
+        category="Products"
+        condition_expr=""
+        icon_expr="string:chat-dots"
+        url_expr="string:${portal_url}/@@ai-prompt-manager"
+        visible="True"
+        i18n:attributes="title">
+        <permission>Manage portal</permission>
+    </configlet>
+
+</object>

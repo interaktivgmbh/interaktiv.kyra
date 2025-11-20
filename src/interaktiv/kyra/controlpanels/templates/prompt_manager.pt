@@ -1,0 +1,124 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      lang="en"
+   metal:use-macro="context/prefs_main_template/macros/master"
+   i18n:domain="interaktiv.kyra">
+
+<head>
+  <metal:styleslot fill-slot="style_slot">
+    <link rel="stylesheet" type="text/css" href="++theme++interaktiv.kyra/css/style.css" />
+  </metal:styleslot>
+
+  <metal:javascriptslot fill-slot="javascript_head_slot">
+    <script type="text/javascript" src="++theme++interaktiv.kyra/js/script.js"></script>
+  </metal:javascriptslot>
+</head>
+
+<body>
+<metal:main metal:fill-slot="prefs_configlet_main">
+
+  <header>
+    <h1 class="documentFirstHeading" i18n:translate="trans_heading_ai_prompt_manager">AI Prompt Manager</h1>
+    <div class="documentDescription" i18n:translate="trans_description_prompt_manager">Manage AI prompts for the TinyMCE editor. Create, edit and delete prompts.</div>
+  </header>
+
+  <button id="create-prompt-button" class="btn btn-primary" data-show-text="Create new Prompt" data-hide-text="Hide Form" i18n:attributes="data-show-text trans_button_create_new_prompt; data-hide-text trans_button_hide_form" i18n:translate="trans_button_create_new_prompt">Create Prompt</button>
+
+  <!-- Create New Prompt Form -->
+  <fieldset class="prompt-create-form">
+    <legend i18n:translate="trans_legend_create_new_prompt">Create New Prompt</legend>
+
+    <form method="post" enctype="multipart/form-data" tal:attributes="action python: request.getURL()">
+      <input type="hidden" name="action" value="create" />
+
+      <div class="field">
+        <label for="name" i18n:translate="trans_label_prompt_name">Name:</label>
+        <input type="text" id="name" name="name" required="required" placeholder="e.g. Translate to Spanish" i18n:attributes="placeholder trans_placeholder_prompt_name" />
+      </div>
+
+      <div class="field">
+        <label for="description" i18n:translate="trans_label_prompt_description">Description:</label>
+        <textarea id="description" name="description" rows="3" placeholder="Optional description of what this prompt does..." i18n:attributes="placeholder trans_placeholder_prompt_description"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="prompt" i18n:translate="trans_label_prompt_text">Prompt Text:</label>
+        <textarea id="prompt" name="prompt" required="required" rows="5" placeholder="e.g. Translate the following text to Spanish..." i18n:attributes="placeholder trans_placeholder_prompt_text"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="categories" i18n:translate="trans_label_prompt_categories">Categories (comma-separated):</label>
+        <input type="text" id="categories" name="categories" placeholder="e.g. Translation, Languages" i18n:attributes="placeholder trans_placeholder_prompt_categories" />
+      </div>
+
+      <div class="field">
+        <label for="metadata_action" i18n:translate="trans_label_prompt_action">Action:</label>
+        <select id="metadata_action" name="metadata_action">
+          <option value="replace" i18n:translate="trans_option_action_replace">Replace</option>
+          <option value="append" i18n:translate="trans_option_action_append">Append</option>
+        </select>
+      </div>
+
+      <!-- File Upload Section -->
+      <fieldset class="file-upload-section">
+        <legend i18n:translate="trans_legend_upload_files">Upload Files (Optional)</legend>
+        <div class="field">
+          <label for="file_upload" i18n:translate="trans_label_select_files">Select Files:</label>
+          <input type="file" id="file_upload" name="file_upload" multiple="multiple" />
+          <p class="help-text" i18n:translate="trans_help_file_upload">
+            Upload documents, images, or other files to provide context for this prompt.
+          </p>
+        </div>
+      </fieldset>
+
+      <button type="submit" class="btn btn-primary" i18n:translate="trans_button_create_prompt">Create Prompt</button>
+    </form>
+  </fieldset>
+
+  <!-- Existing Prompts List -->
+  <h2 i18n:translate="trans_heading_existing_prompts">Existing Prompts</h2>
+
+  <tal:prompts define="prompts python: view.get_prompts()">
+    <tal:has-prompts condition="python: prompts">
+      <table class="listing">
+        <thead>
+          <tr>
+            <th i18n:translate="trans_table_header_name">Name</th>
+            <th i18n:translate="trans_table_header_description">Description</th>
+            <th i18n:translate="trans_table_header_categories">Categories</th>
+            <th i18n:translate="trans_table_header_action">Action</th>
+            <th i18n:translate="trans_table_header_actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr tal:repeat="prompt prompts">
+            <td>${python: prompt.get('name', 'Prompt Name')}</td>
+            <td>${python: prompt.get('description', 'Beschreibung')}</td>
+            <tal:metadata define="metadata python: prompt.get('metadata', {})">
+              <td>${python: ', '.join(metadata.get('categories', []))}</td>
+              <td>${python: metadata.get('action_translation', '')}</td>
+            </tal:metadata>
+            <td>
+              <a tal:attributes="href python: context.absolute_url() + '/@@ai-prompt-edit?prompt_id=' + prompt['id']" class="btn btn-sm btn-secondary" i18n:translate="trans_button_edit">Edit</a>
+
+              <form method="post" style="display: inline;" tal:attributes="action python: request.getURL()">
+                <input type="hidden" name="action" value="delete" />
+                <input type="hidden" name="prompt_id" tal:attributes="value python: prompt['id']" />
+                <button type="submit" class="btn btn-sm btn-danger" i18n:translate="trans_button_delete">Delete</button>
+              </form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </tal:has-prompts>
+
+    <tal:no-prompts condition="python: not prompts">
+      <p class="discreet" i18n:translate="trans_no_prompts_found">No prompts found. Create a new prompt above.</p>
+    </tal:no-prompts>
+  </tal:prompts>
+
+</metal:main>
+</body>
+</html>

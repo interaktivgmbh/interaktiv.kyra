@@ -1,0 +1,13 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:browser="http://namespaces.zope.org/browser"
+    i18n_domain="interaktiv.kyra">
+
+  <browser:page
+      name="ai-assistant-translations"
+      for="*"
+      class=".translations.TranslationsView"
+      permission="zope2.View"
+  />
+
+</configure>

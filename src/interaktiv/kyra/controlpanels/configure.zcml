@@ -1,0 +1,35 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:browser="http://namespaces.zope.org/browser"
+    i18n_domain="interaktiv.kyra">
+
+    <include package="Products.CMFCore" file="permissions.zcml" />
+
+    <!-- Controlpanel AI Assistant Settings -->
+    <browser:page
+        name="ai-assistant-settings"
+        for="plone.base.interfaces.IPloneSiteRoot"
+        class="interaktiv.kyra.controlpanels.ai_assistant.AIAssistantSettingsControlPanel"
+        permission="interaktiv.kyra.manage.settings"
+        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+    />
+
+    <!-- Controlpanel AI Prompt Manager -->
+    <browser:page
+        name="ai-prompt-manager"
+        for="plone.base.interfaces.IPloneSiteRoot"
+        class=".prompt_manager.PromptManagerView"
+        permission="interaktiv.kyra.manage.settings"
+        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+    />
+
+    <!-- Controlpanel AI Prompt Edit -->
+    <browser:page
+        name="ai-prompt-edit"
+        for="plone.base.interfaces.IPloneSiteRoot"
+        class=".prompt_edit.PromptEditView"
+        permission="interaktiv.kyra.manage.settings"
+        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+    />
+
+</configure>

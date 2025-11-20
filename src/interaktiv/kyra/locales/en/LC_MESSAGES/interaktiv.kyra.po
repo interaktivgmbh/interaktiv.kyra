@@ -1,0 +1,238 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: 2025-10-02 13:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI +ZONE\n"
+"Last-Translator: Jan Mevissen <mevissen@interaktiv.de>\n"
+"Language-Team: Interaktiv Developers <entwickler@interaktiv.de>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0\n"
+"Language-Code: en\n"
+"Language-Name: English\n"
+"Preferred-Encodings: utf-8 latin1\n"
+"Domain: interaktiv.kyra\n"
+
+# Controlpanel
+msgid "trans_label_controlpanel_ai_assistant_settings"
+msgstr "AI Assistant Settings"
+
+msgid "trans_label_controlpanel_ai_prompt_manager"
+msgstr "AI Prompt Manager"
+
+# Assistant Settings
+msgid "trans_label_gateway_url"
+msgstr "Gateway URL"
+
+msgid "trans_help_gateway_url"
+msgstr "The base URL of your AI prompt gateway API endpoint"
+
+msgid "trans_label_keycloak_realms_url"
+msgstr "Keycloak Realms URL"
+
+msgid "trans_help_keycloak_realms_url"
+msgstr "The Keycloak realm URL for authentication (e.g., https://auth.example.com/realms/your-realm)"
+
+msgid "trans_label_keycloak_client_id"
+msgstr "Keycloak Client ID"
+
+msgid "trans_help_keycloak_client_id"
+msgstr "The client identifier registered in Keycloak for this application"
+
+msgid "trans_label_keycloak_client_secret"
+msgstr "Keycloak Client Secret"
+
+msgid "trans_help_keycloak_client_secret"
+msgstr "The confidential client secret for Keycloak authentication"
+
+msgid "trans_label_domain_id"
+msgstr "Domain ID"
+
+msgid "trans_help_domain_id"
+msgstr "Unique identifier for this portal instance, used to organize prompts by site"
+
+# Prompt Manager View
+msgid "trans_heading_ai_prompt_manager"
+msgstr "AI Prompt Manager"
+
+msgid "trans_description_prompt_manager"
+msgstr "Manage AI prompts for the TinyMCE editor. Create, edit and delete prompts."
+
+msgid "trans_legend_create_new_prompt"
+msgstr "Create New Prompt"
+
+msgid "trans_placeholder_prompt_name"
+msgstr "e.g. Translate to Spanish"
+
+msgid "trans_placeholder_prompt_description"
+msgstr "Optional description of what this prompt does..."
+
+msgid "trans_placeholder_prompt_text"
+msgstr "e.g. Translate the following text to Spanish..."
+
+msgid "trans_placeholder_prompt_categories"
+msgstr "e.g. Translation, Languages"
+
+msgid "trans_button_create_prompt"
+msgstr "Create Prompt"
+
+msgid "trans_heading_existing_prompts"
+msgstr "Existing Prompts"
+
+msgid "trans_table_header_name"
+msgstr "Name"
+
+msgid "trans_table_header_description"
+msgstr "Description"
+
+msgid "trans_table_header_categories"
+msgstr "Categories"
+
+msgid "trans_table_header_action"
+msgstr "Action"
+
+msgid "trans_table_header_actions"
+msgstr "Actions"
+
+msgid "trans_button_edit"
+msgstr "Edit"
+
+msgid "trans_button_delete"
+msgstr "Delete"
+
+msgid "trans_no_prompts_found"
+msgstr "No prompts found. Create a new prompt above."
+
+msgid "trans_button_create_new_prompt"
+msgstr "Create Prompt"
+
+msgid "trans_button_hide_form"
+msgstr "Hide form"
+
+# Prompt Edit View
+msgid "trans_heading_edit_prompt"
+msgstr "Edit Prompt"
+
+msgid "trans_label_prompt_name"
+msgstr "Name"
+
+msgid "trans_label_prompt_description"
+msgstr "Description"
+
+msgid "trans_label_prompt_text"
+msgstr "Prompt Text"
+
+msgid "trans_label_prompt_categories"
+msgstr "Categories (comma-separated)"
+
+msgid "trans_label_prompt_action"
+msgstr "Action"
+
+msgid "trans_option_action_replace"
+msgstr "Replace"
+
+msgid "trans_option_action_append"
+msgstr "Append"
+
+msgid "trans_button_save_changes"
+msgstr "Save Changes"
+
+msgid "trans_button_cancel"
+msgstr "Cancel"
+
+msgid "trans_error_prompt_not_loaded"
+msgstr "Prompt could not be loaded."
+
+msgid "trans_link_back_to_overview"
+msgstr "Back to Overview"
+
+msgid "trans_button_download"
+msgstr "Download"
+
+# Status Messages
+msgid "trans_status_prompt_created"
+msgstr "Prompt was successfully created"
+
+msgid "trans_status_prompt_deleted"
+msgstr "Prompt was successfully deleted"
+
+msgid "trans_status_prompt_updated"
+msgstr "Prompt was successfully updated"
+
+msgid "trans_status_no_prompt_id"
+msgstr "No prompt ID provided"
+
+msgid "trans_error_missing_name_or_prompt"
+msgstr "Value for name or prompt is missing"
+
+msgid "trans_error_missing_ids"
+msgstr "Missing prompt ID or file ID"
+
+msgid "trans_status_file_deleted"
+msgstr "File successfully deleted"
+
+# File Upload
+msgid "trans_legend_upload_files"
+msgstr "Upload Files (Optional)"
+
+msgid "trans_label_select_files"
+msgstr "Select Files"
+
+msgid "trans_help_file_upload"
+msgstr "Upload documents, images, or other files to provide context for this prompt."
+
+msgid "trans_heading_attached_files"
+msgstr "Attached Files"
+
+msgid "trans_table_header_filename"
+msgstr "Filename"
+
+msgid "trans_table_header_size"
+msgstr "Size"
+
+msgid "trans_table_header_uploaded"
+msgstr "Uploaded"
+
+msgid "trans_no_files_attached"
+msgstr "No files attached to this prompt yet."
+
+msgid "trans_unknown"
+msgstr "Unknown"
+
+# TinyMCE AI Assistant Plugin
+msgid "trans_ai_assistant_no_prompts"
+msgstr "No prompts available"
+
+msgid "trans_ai_assistant_no_prompts_message"
+msgstr "No AI prompts found. Create prompts via the API."
+
+msgid "trans_ai_assistant_loading_error"
+msgstr "Loading error"
+
+msgid "trans_ai_assistant_loading_error_message"
+msgstr "Error loading AI prompts. Check the API connection."
+
+msgid "trans_ai_assistant_fetch_error"
+msgstr "Error loading AI prompts: {error}"
+
+msgid "trans_ai_assistant_processing"
+msgstr "⏳ AI prompt is being processed... This may take a moment."
+
+msgid "trans_ai_assistant_apply_error"
+msgstr "Error applying prompt: {error}"
+
+msgid "trans_ai_assistant_select_text_warning"
+msgstr "Please select text first."
+
+msgid "trans_ai_assistant_select_text_for_prompt"
+msgstr "Please select text first to apply the prompt."
+
+msgid "trans_ai_assistant_success"
+msgstr "\"{name}\" applied successfully."
+
+msgid "trans_ai_assistant_manual_prompt_unavailable"
+msgstr "AI Manual Prompt Extension is not available."
+
+msgid "trans_ai_assistant_category_uncategorized"
+msgstr "Uncategorized"
