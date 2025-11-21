@@ -1,9 +1,11 @@
+import time
 import unittest
 from unittest.mock import patch, Mock
 
 import plone.api as api
 from interaktiv.kyra.api.base import APIBase
 from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
+from interaktiv.kyra.registry.ai_assistant_cache import IAIAssistantCacheSchema
 from interaktiv.kyra.testing import INTERAKTIV_KYRA_FUNCTIONAL_TESTING
 from plone.app.testing import TEST_USER_ID, setRoles
 
@@ -62,6 +64,102 @@ class TestServiceBase(unittest.TestCase):
         # postcondition
         self.assertTupleEqual(result, (None, None, None, None))
 
+    def test__get_token_from_registry__token__valid_timestamp(self):
+        # setup
+        api.portal.set_registry_record(
+            name='keycloak_token_value',
+            interface=IAIAssistantCacheSchema,
+            value='test_token'
+        )
+        api.portal.set_registry_record(
+            name='keycloak_token_timestamp',
+            interface=IAIAssistantCacheSchema,
+            value=str(time.time())
+        )
+
+        # do it
+        result = APIBase._get_token_from_registry()
+
+        # postcondition
+        self.assertEqual(result, 'test_token')
+
+    def test__get_token_from_registry__token__no_timestamp(self):
+        # setup
+        api.portal.set_registry_record(
+            name='keycloak_token_value',
+            interface=IAIAssistantCacheSchema,
+            value='test_token'
+        )
+        api.portal.set_registry_record(
+            name='keycloak_token_timestamp',
+            interface=IAIAssistantCacheSchema,
+            value=''
+        )
+
+        # do it
+        result = APIBase._get_token_from_registry()
+
+        # postcondition
+        self.assertEqual(result, '')
+
+    def test__get_token_from_registry__no_token__valid_timestamp(self):
+        # setup
+        api.portal.set_registry_record(
+            name='keycloak_token_value',
+            interface=IAIAssistantCacheSchema,
+            value=''
+        )
+        api.portal.set_registry_record(
+            name='keycloak_token_timestamp',
+            interface=IAIAssistantCacheSchema,
+            value=str(time.time())
+        )
+
+        # do it
+        result = APIBase._get_token_from_registry()
+
+        # postcondition
+        self.assertEqual(result, '')
+
+    def test__get_token_from_registry__token__old_timestamp(self):
+        # setup
+        api.portal.set_registry_record(
+            name='keycloak_token_value',
+            interface=IAIAssistantCacheSchema,
+            value='test_token'
+        )
+        now_timestamp = time.time()
+        one_day_ago = now_timestamp - 86400
+        api.portal.set_registry_record(
+            name='keycloak_token_timestamp',
+            interface=IAIAssistantCacheSchema,
+            value=str(one_day_ago)
+        )
+
+        # do it
+        result = APIBase._get_token_from_registry()
+
+        # postcondition
+        self.assertEqual(result, '')
+
+    def test__update_token_in_registry(self):
+        # do it
+        APIBase._update_token_in_registry(token='test_token')
+
+        # postcondition
+        token = api.portal.get_registry_record(
+            name='keycloak_token_value',
+            interface=IAIAssistantCacheSchema
+        )
+        self.assertEqual(token, 'test_token')
+
+        token_timestamp = api.portal.get_registry_record(
+             name='keycloak_token_timestamp',
+             interface=IAIAssistantCacheSchema
+        )
+        now_timestamp = time.time()
+        self.assertTrue(float(now_timestamp) > float(token_timestamp))
+
     @patch('interaktiv.kyra.api.base.requests.post')
     def test_get_token__success(self, mock_post):
         # setup
@@ -75,8 +173,10 @@ class TestServiceBase(unittest.TestCase):
         mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
 
+        service = APIBase()
+
         # do it
-        result = APIBase._get_token(realms_url, client_id, client_secret)
+        result = service._get_token(realms_url, client_id, client_secret)
 
         # postcondition
         self.assertEqual(result, mocked_token)
