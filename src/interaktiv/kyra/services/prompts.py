@@ -1,3 +1,5 @@
+"""REST API services for AI prompt operations."""
+
 import json
 from typing import Dict, Any, Self
 from urllib.parse import parse_qs
@@ -10,6 +12,14 @@ from zope.publisher.interfaces import IPublishTraverse
 
 
 class PromptsGet(ServiceBase):
+    """REST API service for retrieving prompts.
+
+    Endpoint: GET /@prompts
+
+    Query Parameters:
+        page: Page number for pagination (default: 1)
+        size: Number of items per page (default: 100)
+    """
 
     page: int
     size: int
@@ -29,6 +39,17 @@ class PromptsGet(ServiceBase):
 
 @implementer(IPublishTraverse)
 class PromptsPost(ServiceBase):
+    """REST API service for applying prompts to text.
+
+    Endpoint: POST /@prompts/{prompt_id}
+
+    Uses IPublishTraverse to extract prompt_id from URL path.
+
+    Request Body:
+        text: The text to process
+        query: The query/instruction for the prompt
+        include_context: Whether to include context (default: True)
+    """
 
     def __init__(self, context: DexterityContent, request: HTTPRequest) -> None:
         super().__init__(context, request)
@@ -48,6 +69,7 @@ class PromptsPost(ServiceBase):
                 'status': 'error'
             }
 
+        # Parse and validate request body
         body = json.loads(self.request.get('BODY', '{}'))
 
         text = body.get('text')
@@ -62,5 +84,6 @@ class PromptsPost(ServiceBase):
             'useContext': body.get('include_context', True)
         }
 
+        # Apply prompt via backend API
         response = self.kyra.prompts.apply(prompt_id, payload)
         return response
