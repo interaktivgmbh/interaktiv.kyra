@@ -28,22 +28,16 @@ class IAIAssistantSchema(Interface):
         required=True
     )
 
-    domain_id = schema.TextLine(
-        title=_('trans_label_domain_id'),
-        description=_('trans_help_domain_id'),
-        default='plone',
-        required=True
-    )
-
-    keycloak_client_id = schema.TextLine(
-        title=_('trans_label_keycloak_client_id'),
-        description=_('trans_help_keycloak_client_id'),
-        required=True
-    )
-
     keycloak_token_expiration_time = schema.Int(
         title=_('trans_label_keycloak_token_expiration_time'),
         description=_('trans_help_keycloak_token_expiration_time'),
         required=True,
         default=1200
+    )
+
+    domain_id = schema.TextLine(
+        title=_('trans_label_domain_id'),
+        description=_('trans_help_domain_id'),
+        default='plone',
+        required=True
     )
