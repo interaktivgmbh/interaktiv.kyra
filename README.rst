@@ -472,17 +472,16 @@ GPL version 2
 Copyright
 ---------
 
-© 2024 Interaktiv GmbH
+© 2025 Interaktiv GmbH
 
 All rights reserved.
 
 Support
 -------
 
-For issues and questions:
+For issues:
 
 - Create an issue on the project repository
-- Contact: support@interaktiv.de (update with actual contact)
 
 Changelog
 ---------
