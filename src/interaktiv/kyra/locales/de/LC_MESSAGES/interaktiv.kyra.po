@@ -52,6 +52,25 @@ msgstr "Domain ID"
 msgid "trans_help_domain_id"
 msgstr "Eindeutige Kennung für diese Portal-Instanz, wird zur Organisation von Prompts nach Website verwendet"
 
+msgid "trans_label_keycloak_token_expiration_time"
+msgstr "Keycloak Token Expiration Time"
+
+msgid "trans_help_keycloak_token_expiration_time"
+msgstr "Angabe in Sekunden"
+
+# Assistant Cache
+msgid "trans_label_keycloak_token_value"
+msgstr "Keycloak Token Value"
+
+msgid "trans_help_keycloak_token_value"
+msgstr "Dieses Feld wird automatisch gesetzt!"
+
+msgid "trans_label_keycloak_token_timestamp"
+msgstr "Keycloak Token Timestamp"
+
+msgid "trans_help_keycloak_token_timestamp"
+msgstr "Dieses Feld wird automatisch gesetzt!"
+
 # Prompt Manager View
 msgid "trans_heading_ai_prompt_manager"
 msgstr "KI Prompt Manager"

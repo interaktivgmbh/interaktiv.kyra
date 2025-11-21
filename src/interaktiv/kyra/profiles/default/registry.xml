@@ -1,4 +1,5 @@
 <?xml version="1.0"?>
 <registry>
     <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"/>
+    <records interface="interaktiv.kyra.registry.ai_assistant_cache.IAIAssistantCacheSchema"/>
 </registry>
