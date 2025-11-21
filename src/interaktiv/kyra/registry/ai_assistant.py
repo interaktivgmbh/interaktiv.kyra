@@ -34,3 +34,16 @@ class IAIAssistantSchema(Interface):
         default='plone',
         required=True
     )
+
+    keycloak_client_id = schema.TextLine(
+        title=_('trans_label_keycloak_client_id'),
+        description=_('trans_help_keycloak_client_id'),
+        required=True
+    )
+
+    keycloak_token_experiation_time = schema.Int(
+        title=_('trans_label_keycloak_token_experiation_time'),
+        description=_('trans_help_keycloak_token_experiation_time'),
+        required=True,
+        default=1200
+    )
