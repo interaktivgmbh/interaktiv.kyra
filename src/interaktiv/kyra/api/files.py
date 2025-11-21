@@ -1,3 +1,5 @@
+"""Client for file-related operations in Kyra API."""
+
 from typing import Any, Dict, List, Tuple, Optional, Union
 
 from ZPublisher.HTTPRequest import FileUpload
@@ -5,13 +7,18 @@ from interaktiv.kyra.api.base import APIBase
 
 
 class Files(APIBase):
+    """Provides methods to manage files attached to prompts, including
+    upload, download, list, and delete operations.
+    """
 
     def get(self, prompt_id: str) -> List[Dict[str, Any]]:
+        """Retrieve list of files attached to a prompt."""
         url = f'{self.gateway_url}/{prompt_id}/files'
         response = self.request('GET', url)
         return response.get('files', [response])
 
     def upload(self, prompt_id: str, file_field: FileUpload) -> Dict[str, Any]:
+        """Upload one or more files to a prompt."""
         files = []
         files_data = self._prepare_files(file_field)
 
@@ -48,11 +55,13 @@ class Files(APIBase):
         return file_data, filename, content_type
 
     def download(self, prompt_id: str, file_id: str) -> Dict[str, Union[bytes, str]]:
+        """Download a file from a prompt."""
         url = f'{self.gateway_url}/{prompt_id}/files/{file_id}/download'
         response = self.request('GET', url, get_content=True)
         return response
 
     def delete(self, prompt_id: str, file_id: str) -> Dict[str, Any]:
+        """Delete a file from a prompt."""
         url = f'{self.gateway_url}/{prompt_id}/files/{file_id}'
         response = self.request('DELETE', url)
         return response
