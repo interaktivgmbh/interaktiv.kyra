@@ -64,3 +64,23 @@ class PromptsPost(ServiceBase):
 
         response = self.kyra.prompts.apply(prompt_id, payload)
         return response
+
+
+class CustomPromptPost(ServiceBase):
+
+    def __init__(self, context: DexterityContent, request: HTTPRequest) -> None:
+        super().__init__(context, request)
+        self.params = []
+
+    def reply(self) -> Dict[str, Any]:
+        body = json.loads(self.request.get('BODY', '{}'))
+
+        prompt = body.get('prompt', '')
+        text = body.get('text', '')
+
+        # Mock response for testing
+        mock_response = f"[MOCK] AI processed your request.\n\nPrompt: {prompt}\n\nOriginal text: {text}\n\nThis is a simulated response. The actual implementation will call the prompt-tool API."
+
+        return {
+            'response': mock_response,
+        }

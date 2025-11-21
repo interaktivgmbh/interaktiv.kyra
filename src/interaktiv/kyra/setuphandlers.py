@@ -9,6 +9,11 @@ CUSTOM_PLUGINS = [
         'name': 'ai-assistant',
         'path': '/++theme++interaktiv.kyra.components/js/ai-assistant-plugin.js',
         'visible': True
+    },
+    {
+        'name': 'ai-manual-prompt',
+        'path': '/++theme++interaktiv.kyra.components/js/ai-manual-prompt.js',
+        'visible': True
     }
 ]
 

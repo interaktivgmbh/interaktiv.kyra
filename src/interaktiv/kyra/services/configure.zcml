@@ -25,4 +25,12 @@
             name="prompts"
     />
 
+    <plone:service
+            method="POST"
+            factory=".prompts.CustomPromptPost"
+            for="plone.dexterity.interfaces.IDexterityContent"
+            permission="interaktiv.kyra.prompts.post"
+            name="custom_prompt"
+    />
+
 </configure>
