@@ -433,15 +433,6 @@ If you encounter authentication errors:
 3. Ensure client has necessary permissions in Keycloak
 4. Review Plone logs for detailed error messages
 
-Connection Timeouts
-~~~~~~~~~~~~~~~~~~~
-
-Default timeout is 30 seconds. For long-running operations, consider:
-
-- Increasing timeout in `APIBase.request() <psi_element://interaktiv.kyra.api.base.APIBase#request>`_ method
-- Implementing async/background task processing
-- Using progress indicators in UI
-
 API Responses
 ~~~~~~~~~~~~~
 
