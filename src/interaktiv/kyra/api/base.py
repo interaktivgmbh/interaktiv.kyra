@@ -51,14 +51,14 @@ class APIBase:
         if not token_timestamp:
             return ''
 
-        token_experiation_time = api.portal.get_registry_record(
-            name='keycloak_token_experiation_time',
+        token_expiration_time = api.portal.get_registry_record(
+            name='keycloak_token_expiration_time',
             interface=IAIAssistantSchema
         ) or KEYCLOAK_TOKEN_EXPIRATION_TIME_DEFAULT
 
         now_timestamp = time.time()
         diff_timestamps = float(now_timestamp) - float(token_timestamp)
-        if diff_timestamps > token_experiation_time:
+        if diff_timestamps > token_expiration_time:
             return ''
 
         token = api.portal.get_registry_record(

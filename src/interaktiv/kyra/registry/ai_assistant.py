@@ -41,9 +41,9 @@ class IAIAssistantSchema(Interface):
         required=True
     )
 
-    keycloak_token_experiation_time = schema.Int(
-        title=_('trans_label_keycloak_token_experiation_time'),
-        description=_('trans_help_keycloak_token_experiation_time'),
+    keycloak_token_expiration_time = schema.Int(
+        title=_('trans_label_keycloak_token_expiration_time'),
+        description=_('trans_help_keycloak_token_expiration_time'),
         required=True,
         default=1200
     )

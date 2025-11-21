@@ -52,10 +52,10 @@ msgstr "Domain ID"
 msgid "trans_help_domain_id"
 msgstr "Unique identifier for this portal instance, used to organize prompts by site"
 
-msgid "trans_label_keycloak_token_experiation_time"
-msgstr "Keycloak Token Expeririation Time"
+msgid "trans_label_keycloak_token_expiration_time"
+msgstr "Keycloak Token Expiration Time"
 
-msgid "trans_help_keycloak_token_experiation_time"
+msgid "trans_help_keycloak_token_expiration_time"
 msgstr "In Seconds"
 
 # Assistant Cache
