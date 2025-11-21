@@ -1,3 +1,4 @@
+import time
 from typing import Tuple, Any, Dict
 
 import requests
@@ -5,8 +6,6 @@ from interaktiv.kyra import logger
 from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
 from interaktiv.kyra.registry.ai_assistant_cache import IAIAssistantCacheSchema
 from plone import api
-import time
-
 
 KEYCLOAK_TOKEN_EXPIRATION_TIME_DEFAULT = 1200
 
@@ -41,6 +40,35 @@ class APIBase:
             interface=IAIAssistantSchema
         )
         return gateway_url, realms_url, client_id, client_secret
+
+    def _get_token(self, realms_url: str, client_id: str, client_secret: str) -> str:
+        if not (realms_url and client_id and client_secret):
+            return ''
+
+        token_from_registry = self._get_token_from_registry()
+        if token_from_registry:
+            return token_from_registry
+
+        token_url = f'{realms_url}/protocol/openid-connect/token'
+
+        data = {
+            'grant_type': 'client_credentials',
+            'client_id': client_id,
+            'client_secret': client_secret,
+        }
+
+        try:
+            response = requests.post(token_url, data=data)
+            response.raise_for_status()
+
+            token_data = response.json()
+            token = token_data.get('access_token', '')
+
+            self._update_token_in_registry(token)
+            return token
+
+        except requests.HTTPError:
+            return ''
 
     @staticmethod
     def _get_token_from_registry() -> str:
@@ -82,35 +110,6 @@ class APIBase:
              value=str(time.time()),
              interface=IAIAssistantCacheSchema
         )
-
-    def _get_token(self, realms_url: str, client_id: str, client_secret: str) -> str:
-        if not (realms_url and client_id and client_secret):
-            return ''
-
-        token_from_registry = self._get_token_from_registry()
-        if token_from_registry:
-            return token_from_registry
-
-        token_url = f'{realms_url}/protocol/openid-connect/token'
-
-        data = {
-            'grant_type': 'client_credentials',
-            'client_id': client_id,
-            'client_secret': client_secret,
-        }
-
-        try:
-            response = requests.post(token_url, data=data)
-            response.raise_for_status()
-
-            token_data = response.json()
-            token = token_data.get('access_token', '')
-
-            self._update_token_in_registry(token)
-            return token
-
-        except requests.HTTPError:
-            return ''
 
     def request(
             self,

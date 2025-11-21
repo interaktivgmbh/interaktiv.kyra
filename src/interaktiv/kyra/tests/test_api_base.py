@@ -1,3 +1,4 @@
+import time
 import unittest
 from unittest.mock import patch, Mock
 
@@ -7,7 +8,6 @@ from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
 from interaktiv.kyra.registry.ai_assistant_cache import IAIAssistantCacheSchema
 from interaktiv.kyra.testing import INTERAKTIV_KYRA_FUNCTIONAL_TESTING
 from plone.app.testing import TEST_USER_ID, setRoles
-import time
 
 
 class TestServiceBase(unittest.TestCase):
