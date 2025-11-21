@@ -3,7 +3,12 @@ from typing import Tuple, Any, Dict
 import requests
 from interaktiv.kyra import logger
 from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
+from interaktiv.kyra.registry.ai_assistant_cache import IAIAssistantCacheSchema
 from plone import api
+import time
+
+
+KEYCLOAK_TOKEN_CACHE_EXPIRATION_TIME = 3600
 
 
 class APIBase:
@@ -38,9 +43,48 @@ class APIBase:
         return gateway_url, realms_url, client_id, client_secret
 
     @staticmethod
-    def _get_token(realms_url: str, client_id: str, client_secret: str) -> str:
+    def _get_token_from_registry() -> str:
+        token_timestamp = api.portal.get_registry_record(
+             name='keycloak_token_timestamp',
+             interface=IAIAssistantCacheSchema
+        )
+        if not token_timestamp:
+            return ''
+
+        now_timestamp = time.time()
+        diff_timestamps = float(now_timestamp) - float(token_timestamp)
+        if diff_timestamps > KEYCLOAK_TOKEN_CACHE_EXPIRATION_TIME:
+            return ''
+
+        token = api.portal.get_registry_record(
+            name='keycloak_token_value',
+            interface=IAIAssistantCacheSchema
+        )
+        if not token:
+            return ''
+
+        return token
+
+    @staticmethod
+    def _update_token_in_registry(token: str) -> None:
+        api.portal.set_registry_record(
+            name='keycloak_token_value',
+            value=token,
+            interface=IAIAssistantCacheSchema
+        )
+        api.portal.set_registry_record(
+             name='keycloak_token_timestamp',
+             value=str(time.time()),
+             interface=IAIAssistantCacheSchema
+        )
+
+    def _get_token(self, realms_url: str, client_id: str, client_secret: str) -> str:
         if not (realms_url and client_id and client_secret):
             return ''
+
+        token_from_registry = self._get_token_from_registry()
+        if token_from_registry:
+            return token_from_registry
 
         token_url = f'{realms_url}/protocol/openid-connect/token'
 
@@ -55,7 +99,10 @@ class APIBase:
             response.raise_for_status()
 
             token_data = response.json()
-            return token_data.get('access_token', '')
+            token = token_data.get('access_token', '')
+
+            self._update_token_in_registry(token)
+            return token
 
         except requests.HTTPError:
             return ''

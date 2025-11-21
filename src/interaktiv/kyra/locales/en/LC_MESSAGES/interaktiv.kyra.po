@@ -52,6 +52,19 @@ msgstr "Domain ID"
 msgid "trans_help_domain_id"
 msgstr "Unique identifier for this portal instance, used to organize prompts by site"
 
+# Assistant Cache
+msgid "trans_label_keycloak_token_value"
+msgstr "Keycloak Token Value"
+
+msgid "trans_help_keycloak_token_value"
+msgstr "This field is set automatically!"
+
+msgid "trans_label_keycloak_token_timestamp"
+msgstr "Keycloak Token Timestamp"
+
+msgid "trans_help_keycloak_token_timestamp"
+msgstr "This field is set automatically!"
+
 # Prompt Manager View
 msgid "trans_heading_ai_prompt_manager"
 msgstr "AI Prompt Manager"
