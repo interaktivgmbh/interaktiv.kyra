@@ -6,7 +6,7 @@ from plone.app.registry.browser import controlpanel
 
 class AIAssistantSettingsControlPanelForm(controlpanel.RegistryEditForm):
     schema = IAIAssistantSchema
-    label = _("AI Assistant Settings")
+    label = _('trans_label_controlpanel_ai_assistant_settings')
 
 
 class AIAssistantSettingsControlPanel(controlpanel.ControlPanelFormWrapper):
