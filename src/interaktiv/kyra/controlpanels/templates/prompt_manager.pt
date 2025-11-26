@@ -27,7 +27,7 @@
   <button id="create-prompt-button" class="btn btn-primary" data-show-text="Create new Prompt" data-hide-text="Hide Form" i18n:attributes="data-show-text trans_button_create_new_prompt; data-hide-text trans_button_hide_form" i18n:translate="trans_button_create_new_prompt">Create Prompt</button>
 
   <!-- Create New Prompt Form -->
-  <fieldset class="prompt-create-form">
+  <fieldset id="prompt-create-form">
     <legend i18n:translate="trans_legend_create_new_prompt">Create New Prompt</legend>
 
     <form method="post" enctype="multipart/form-data" tal:attributes="action python: request.getURL()">

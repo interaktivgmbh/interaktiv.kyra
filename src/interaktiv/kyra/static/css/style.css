@@ -117,7 +117,7 @@
   margin-left: 0.5em;
 }
 
-.template-ai-prompt-manager .prompt-create-form {
+.template-ai-prompt-manager #prompt-create-form {
   display: none;
   margin: 2em 0;
   padding: 1.5em;
@@ -126,11 +126,11 @@
   background-color: var(--gray-lightest);
 }
 
-.template-ai-prompt-manager .prompt-create-form.is-visible {
+.template-ai-prompt-manager #prompt-create-form.is-visible {
   display: block;
 }
 
-.template-ai-prompt-manager .prompt-create-form legend {
+.template-ai-prompt-manager #prompt-create-form legend {
   font-weight: bold;
   font-size: 1.1em;
   padding: 0 0.5em;

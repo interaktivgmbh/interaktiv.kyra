@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', function() {
   const createButton = document.getElementById('create-prompt-button');
-  const createForm = document.querySelector('.content fieldset.prompt-create-form');
+  const createForm = document.getElementById('prompt-create-form');
 
   if (createButton && createForm) {
     createButton.addEventListener('click', function() {
