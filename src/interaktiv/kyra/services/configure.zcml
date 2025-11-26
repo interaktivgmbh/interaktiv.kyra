@@ -7,6 +7,25 @@
     <include package="plone.rest" file="meta.zcml"/>
 
     <!-- ===============================
+         AI ASSISTANT SETTINGS (Site root)
+         =============================== -->
+    <plone:service
+        method="GET"
+        name="@ai-assistant-settings"
+        factory=".ai_assistant_settings.AIAssistantSettingsGet"
+        for="Products.CMFPlone.interfaces.IPloneSiteRoot"
+        permission="interaktiv.kyra.manage.settings"
+    />
+
+    <plone:service
+        method="PATCH"
+        name="@ai-assistant-settings"
+        factory=".ai_assistant_settings.AIAssistantSettingsPatch"
+        for="Products.CMFPlone.interfaces.IPloneSiteRoot"
+        permission="interaktiv.kyra.manage.settings"
+    />
+
+    <!-- ===============================
          PROMPTS — LIST (GET)
          =============================== -->
     <plone:service
@@ -18,9 +37,7 @@
         name="prompts"
     />
 
-    <!-- ===============================
-         APPLY PROMPT (POST)
-         =============================== -->
+    <!-- APPLY PROMPT (POST) -->
     <plone:service
         method="POST"
         factory=".prompts.PromptsPost"
@@ -30,10 +47,7 @@
         name="prompts"
     />
 
-
-    <!-- ===============================
-         PROMPT CREATE (POST)
-         =============================== -->
+    <!-- PROMPT CREATE (POST) -->
     <plone:service
         method="POST"
         factory=".prompts.PromptCreate"
@@ -43,9 +57,7 @@
         name="prompts-create"
     />
 
-    <!-- ===============================
-         PROMPT GET (GET single)
-         =============================== -->
+    <!-- PROMPT GET (single) -->
     <plone:service
         method="GET"
         factory=".prompts.PromptGet"
@@ -55,10 +67,7 @@
         name="prompt"
     />
 
-
-    <!-- ===============================
-         PROMPT UPDATE (PATCH)
-         =============================== -->
+    <!-- PROMPT UPDATE (PATCH) -->
     <plone:service
         method="PATCH"
         factory=".prompts.PromptUpdate"
@@ -68,9 +77,7 @@
         name="prompt"
     />
 
-    <!-- ===============================
-         PROMPT DELETE (DELETE)
-         =============================== -->
+    <!-- PROMPT DELETE (DELETE) -->
     <plone:service
         method="DELETE"
         factory=".prompts.PromptDelete"
@@ -80,10 +87,7 @@
         name="prompt"
     />
 
-
-    <!-- ===============================
-         FILES LIST (GET)
-         =============================== -->
+    <!-- FILES LIST (GET) -->
     <plone:service
         method="GET"
         factory=".prompts.FilesList"
@@ -93,9 +97,7 @@
         name="prompt-files"
     />
 
-    <!-- ===============================
-         FILE UPLOAD (POST)
-         =============================== -->
+    <!-- FILE UPLOAD (POST) -->
     <plone:service
         method="POST"
         factory=".prompts.FileUpload"
@@ -105,9 +107,7 @@
         name="prompt-files"
     />
 
-    <!-- ===============================
-         FILE DELETE (DELETE)
-         =============================== -->
+    <!-- FILE DELETE (DELETE) -->
     <plone:service
         method="DELETE"
         factory=".prompts.FileDelete"
