@@ -1,16 +1,55 @@
 <configure xmlns="http://namespaces.zope.org/zope">
 
+  <!-- Prompts – bestehende Permissions -->
   <permission
       id="interaktiv.kyra.prompts.get"
       title="AIAssistant: Get Prompts"
   />
   <permission
       id="interaktiv.kyra.prompts.post"
-      title="AIAssistant: Post Prompts"
+      title="AIAssistant: Apply Prompts"
   />
   <permission
       id="interaktiv.kyra.manage.settings"
       title="AIAssistant: Manage Settings"
+  />
+
+  <!-- Prompts CRUD (für deine neuen Services) -->
+  <permission
+      id="interaktiv.kyra.prompts.create"
+      title="AIAssistant: Create Prompts"
+  />
+  <permission
+      id="interaktiv.kyra.prompts.update"
+      title="AIAssistant: Update Prompts"
+  />
+  <permission
+      id="interaktiv.kyra.prompts.delete"
+      title="AIAssistant: Delete Prompts"
+  />
+
+  <!-- Files an Prompts -->
+  <permission
+      id="interaktiv.kyra.files.get"
+      title="AIAssistant: Get Prompt Files"
+  />
+  <permission
+      id="interaktiv.kyra.files.upload"
+      title="AIAssistant: Upload Prompt Files"
+  />
+  <permission
+      id="interaktiv.kyra.files.download"
+      title="AIAssistant: Download Prompt Files"
+  />
+  <permission
+      id="interaktiv.kyra.files.delete"
+      title="AIAssistant: Delete Prompt Files"
+  />
+
+  <!-- Optional: falls du irgendwo schon 'files.post' benutzt hast -->
+  <permission
+      id="interaktiv.kyra.files.post"
+      title="AIAssistant: Upload Prompt Files (legacy)"
   />
 
 </configure>
