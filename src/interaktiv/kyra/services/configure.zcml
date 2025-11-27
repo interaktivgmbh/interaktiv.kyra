@@ -3,27 +3,26 @@
     xmlns:zcml="http://namespaces.zope.org/zcml"
     xmlns:plone="http://namespaces.plone.org/plone">
 
-    <!-- Include for plone:service directive -->
-    <include package="plone.rest" file="meta.zcml"/>
+    <!-- Include für plone:service -->
+    <include package="plone.rest" file="meta.zcml" />
 
-    <!-- ===============================
-         AI ASSISTANT SETTINGS (Site root)
-         =============================== -->
-    <plone:service
-        method="GET"
-        name="@ai-assistant-settings"
-        factory=".ai_assistant_settings.AIAssistantSettingsGet"
-        for="Products.CMFPlone.interfaces.IPloneSiteRoot"
-        permission="interaktiv.kyra.manage.settings"
-    />
+<!-- src/interaktiv/kyra/services/configure.zcml -->
+<plone:service
+    method="GET"
+    name="@ai-assistant-settings"
+    factory=".ai_assistant_settings.AIAssistantSettingsGet"
+    for="plone.base.interfaces.IPloneSiteRoot"
+    permission="interaktiv.kyra.manage.settings"
+/>
 
-    <plone:service
-        method="PATCH"
-        name="@ai-assistant-settings"
-        factory=".ai_assistant_settings.AIAssistantSettingsPatch"
-        for="Products.CMFPlone.interfaces.IPloneSiteRoot"
-        permission="interaktiv.kyra.manage.settings"
-    />
+<plone:service
+    method="PATCH"
+    name="@ai-assistant-settings"
+    factory=".ai_assistant_settings.AIAssistantSettingsPatch"
+    for="plone.base.interfaces.IPloneSiteRoot"
+    permission="interaktiv.kyra.manage.settings"
+/>
+
 
     <!-- ===============================
          PROMPTS — LIST (GET)
