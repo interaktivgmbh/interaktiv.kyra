@@ -1,55 +1,62 @@
 <configure xmlns="http://namespaces.zope.org/zope">
 
-  <!-- Prompts – bestehende Permissions -->
-  <permission
-      id="interaktiv.kyra.prompts.get"
-      title="AIAssistant: Get Prompts"
-  />
-  <permission
-      id="interaktiv.kyra.prompts.post"
-      title="AIAssistant: Apply Prompts"
-  />
+  <!-- ============================================
+       SETTINGS
+       ============================================ -->
   <permission
       id="interaktiv.kyra.manage.settings"
       title="AIAssistant: Manage Settings"
   />
 
-  <!-- Prompts CRUD (für deine neuen Services) -->
+  <!-- ============================================
+       PROMPTS (LIST + APPLY)
+       ============================================ -->
+  <permission
+      id="interaktiv.kyra.prompts.get"
+      title="AIAssistant: Get Prompts"
+  />
+
+  <permission
+      id="interaktiv.kyra.prompts.post"
+      title="AIAssistant: Apply Prompts"
+  />
+
+
+  <!-- ============================================
+       PROMPTS CRUD
+       ============================================ -->
   <permission
       id="interaktiv.kyra.prompts.create"
-      title="AIAssistant: Create Prompts"
+      title="AIAssistant: Create Prompt"
   />
+
   <permission
       id="interaktiv.kyra.prompts.update"
-      title="AIAssistant: Update Prompts"
+      title="AIAssistant: Update Prompt"
   />
+
   <permission
       id="interaktiv.kyra.prompts.delete"
-      title="AIAssistant: Delete Prompts"
+      title="AIAssistant: Delete Prompt"
   />
 
-  <!-- Files an Prompts -->
+
+  <!-- ============================================
+       FILES
+       ============================================ -->
   <permission
       id="interaktiv.kyra.files.get"
-      title="AIAssistant: Get Prompt Files"
-  />
-  <permission
-      id="interaktiv.kyra.files.upload"
-      title="AIAssistant: Upload Prompt Files"
-  />
-  <permission
-      id="interaktiv.kyra.files.download"
-      title="AIAssistant: Download Prompt Files"
-  />
-  <permission
-      id="interaktiv.kyra.files.delete"
-      title="AIAssistant: Delete Prompt Files"
+      title="AIAssistant: Get Files"
   />
 
-  <!-- Optional: falls du irgendwo schon 'files.post' benutzt hast -->
   <permission
-      id="interaktiv.kyra.files.post"
-      title="AIAssistant: Upload Prompt Files (legacy)"
+      id="interaktiv.kyra.files.upload"
+      title="AIAssistant: Upload File"
+  />
+
+  <permission
+      id="interaktiv.kyra.files.delete"
+      title="AIAssistant: Delete File"
   />
 
 </configure>

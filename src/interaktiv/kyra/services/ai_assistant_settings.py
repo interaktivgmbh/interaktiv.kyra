@@ -2,30 +2,50 @@
 
 from plone.restapi.services import Service
 from plone.restapi.deserializer import json_body
-from plone.registry.interfaces import IRegistry
-from zope.component import getUtility
+from plone import api
 from zExceptions import BadRequest
 
-from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
+# Registry-Records basieren auf deinem registry.xml:
+# <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"/>
+REGISTRY_PREFIX = "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"
+
+FIELDS = (
+    "gateway_url",
+    "keycloak_realms_url",
+    "keycloak_client_id",
+    "keycloak_client_secret",
+    "keycloak_token_expiration_time",
+    "domain_id",
+)
 
 
-def _get_settings():
-    """Registry-Proxy für IAIAssistantSchema holen."""
-    registry = getUtility(IRegistry)
-    return registry.forInterface(IAIAssistantSchema)
+def _key(name: str) -> str:
+    return f"{REGISTRY_PREFIX}.{name}"
 
 
-def _serialize(settings):
-    """Antwort-JSON immer in derselben Struktur."""
+def _get_registry():
+    # klassisches portal_registry-Tool
+    return api.portal.get_tool("portal_registry")
+
+
+def _serialize(registry):
+    """Immer die aktuell gespeicherten Werte aus portal_registry holen."""
+    def get(name, default):
+        record_name = _key(name)
+        # records[] existiert nur, wenn der Eintrag wirklich registriert wurde
+        if record_name in registry.records:
+            return registry[record_name]
+        return default
+
     return {
-        "gateway_url": getattr(settings, "gateway_url", "") or "",
-        "keycloak_realms_url": getattr(settings, "keycloak_realms_url", "") or "",
-        "keycloak_client_id": getattr(settings, "keycloak_client_id", "") or "",
-        "keycloak_client_secret": getattr(settings, "keycloak_client_secret", "") or "",
+        "gateway_url": get("gateway_url", "") or "",
+        "keycloak_realms_url": get("keycloak_realms_url", "") or "",
+        "keycloak_client_id": get("keycloak_client_id", "") or "",
+        "keycloak_client_secret": get("keycloak_client_secret", "") or "",
         "keycloak_token_expiration_time": (
-            getattr(settings, "keycloak_token_expiration_time", 1200) or 1200
+            get("keycloak_token_expiration_time", 1200) or 1200
         ),
-        "domain_id": getattr(settings, "domain_id", "plone") or "plone",
+        "domain_id": get("domain_id", "plone") or "plone",
     }
 
 
@@ -33,32 +53,21 @@ class AIAssistantSettingsGet(Service):
     """GET /++api++/@ai-assistant-settings"""
 
     def reply(self):
-        settings = _get_settings()
-        return _serialize(settings)
+        registry = _get_registry()
+        return _serialize(registry)
 
 
 class AIAssistantSettingsPatch(Service):
     """PATCH /++api++/@ai-assistant-settings"""
 
-    FIELDS = (
-        "gateway_url",
-        "keycloak_realms_url",
-        "keycloak_client_id",
-        "keycloak_client_secret",
-        "keycloak_token_expiration_time",
-        "domain_id",
-    )
-
     def reply(self):
-        # plone.restapi kümmert sich um das saubere Auslesen des JSON-Bodys
+        registry = _get_registry()
         data = json_body(self.request)
 
         if not isinstance(data, dict):
             raise BadRequest("JSON object expected")
 
-        settings = _get_settings()
-
-        for name in self.FIELDS:
+        for name in FIELDS:
             if name not in data:
                 continue
 
@@ -72,7 +81,7 @@ class AIAssistantSettingsPatch(Service):
                         "keycloak_token_expiration_time must be an integer"
                     )
 
-            setattr(settings, name, value)
+            registry[_key(name)] = value
 
-        # Aktuell persistierte Werte zurückgeben
-        return _serialize(settings)
+        # nach dem Speichern die echten Registry-Werte zurückgeben
+        return _serialize(registry)

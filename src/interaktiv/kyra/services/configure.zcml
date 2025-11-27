@@ -3,25 +3,23 @@
     xmlns:zcml="http://namespaces.zope.org/zcml"
     xmlns:plone="http://namespaces.plone.org/plone">
 
-    <!-- Include für plone:service -->
-    <include package="plone.rest" file="meta.zcml" />
+    <include package="plone.restapi" file="meta.zcml" />
 
-<!-- src/interaktiv/kyra/services/configure.zcml -->
-<plone:service
-    method="GET"
-    name="@ai-assistant-settings"
-    factory=".ai_assistant_settings.AIAssistantSettingsGet"
-    for="plone.base.interfaces.IPloneSiteRoot"
-    permission="interaktiv.kyra.manage.settings"
-/>
+    <plone:service
+        method="GET"
+        name="@ai-assistant-settings"
+        factory=".ai_assistant_settings.AIAssistantSettingsGet"
+        for="plone.base.interfaces.IPloneSiteRoot"
+        permission="interaktiv.kyra.manage.settings"
+    />
 
-<plone:service
-    method="PATCH"
-    name="@ai-assistant-settings"
-    factory=".ai_assistant_settings.AIAssistantSettingsPatch"
-    for="plone.base.interfaces.IPloneSiteRoot"
-    permission="interaktiv.kyra.manage.settings"
-/>
+    <plone:service
+        method="PATCH"
+        name="@ai-assistant-settings"
+        factory=".ai_assistant_settings.AIAssistantSettingsPatch"
+        for="plone.base.interfaces.IPloneSiteRoot"
+        permission="interaktiv.kyra.manage.settings"
+    />
 
 
     <!-- ===============================
