@@ -1,5 +1,12 @@
 <?xml version="1.0"?>
 <registry>
-    <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"/>
+    <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema">
+      <value key="gateway_url">http://localhost</value>
+      <value key="keycloak_realms_url">http://localhost</value>
+      <value key="keycloak_client_id">plone</value>
+      <value key="keycloak_client_secret">plone</value>
+      <value key="keycloak_token_expiration_time">0</value>
+      <value key="domain_id">plone</value>
+    </records>
     <records interface="interaktiv.kyra.registry.ai_assistant_cache.IAIAssistantCacheSchema"/>
 </registry>

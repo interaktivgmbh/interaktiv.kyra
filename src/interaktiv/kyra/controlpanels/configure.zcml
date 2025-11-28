@@ -9,7 +9,7 @@
     <browser:page
         name="ai-assistant-settings"
         for="plone.base.interfaces.IPloneSiteRoot"
-        class="interaktiv.kyra.controlpanels.ai_assistant.AIAssistantSettingsControlPanel"
+        class="interaktiv.kyra.controlpanels.ai_assistant.AIAssistantSettingsView"
         permission="interaktiv.kyra.manage.settings"
         layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
     />
@@ -30,6 +30,11 @@
         class=".prompt_edit.PromptEditView"
         permission="interaktiv.kyra.manage.settings"
         layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+    />
+
+    <adapter
+      factory=".ai_assistant.AIAssistantSettingsConfigletPanel"
+      name="ai-assist-settings"
     />
 
 </configure>

@@ -1,16 +1,10 @@
 <configure xmlns="http://namespaces.zope.org/zope">
 
-  <!-- ============================================
-       SETTINGS
-       ============================================ -->
   <permission
       id="interaktiv.kyra.manage.settings"
       title="AIAssistant: Manage Settings"
   />
 
-  <!-- ============================================
-       PROMPTS (LIST + APPLY)
-       ============================================ -->
   <permission
       id="interaktiv.kyra.prompts.get"
       title="AIAssistant: Get Prompts"
@@ -18,13 +12,9 @@
 
   <permission
       id="interaktiv.kyra.prompts.post"
-      title="AIAssistant: Apply Prompts"
+      title="AIAssistant: Post Prompts"
   />
 
-
-  <!-- ============================================
-       PROMPTS CRUD
-       ============================================ -->
   <permission
       id="interaktiv.kyra.prompts.create"
       title="AIAssistant: Create Prompt"
@@ -40,10 +30,6 @@
       title="AIAssistant: Delete Prompt"
   />
 
-
-  <!-- ============================================
-       FILES
-       ============================================ -->
   <permission
       id="interaktiv.kyra.files.get"
       title="AIAssistant: Get Files"
