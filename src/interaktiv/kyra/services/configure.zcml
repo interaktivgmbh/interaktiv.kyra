@@ -24,9 +24,8 @@
         permission="interaktiv.kyra.manage.settings"
     />
 
-
     <!-- ===============================
-         AI PROMPTS
+         AI PROMPTS CRUD
          =============================== -->
     <plone:service
         method="GET"
@@ -60,11 +59,9 @@
         permission="interaktiv.kyra.prompts.delete"
     />
 
-
     <!-- ===============================
          PROMPT FILES
          =============================== -->
-
     <plone:service
         method="GET"
         name="@ai-prompt-files"
@@ -87,6 +84,17 @@
         factory=".prompt_files.PromptFilesService"
         for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.files.delete"
+    />
+
+    <!-- ===============================
+         DOWNLOAD FILE
+         =============================== -->
+    <plone:service
+        method="GET"
+        name="@ai-prompt-files-download"
+        factory=".prompt_files.PromptFileDownloadService"
+        for="plone.base.interfaces.IPloneSiteRoot"
+        permission="interaktiv.kyra.files.get"
     />
 
 </configure>

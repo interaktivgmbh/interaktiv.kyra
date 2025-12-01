@@ -27,8 +27,7 @@ def _save(prompts):
 
 
 def _get():
-    ann = _get_annotations()
-    return ann.get(ANNOTATION_KEY, [])
+    return _get_annotations().get(ANNOTATION_KEY, [])
 
 
 def _find_prompt(prompt_id):
@@ -48,20 +47,12 @@ def _find_file(prompt, file_id):
 
 @implementer(IPublishTraverse)
 class PromptFilesService(Service):
-    """Handles GET, POST, DELETE for /@ai-prompt-files/{prompt_id}/{file_id}
-
-    Varianten:
-      GET  /@ai-prompt-files/{prompt_id}
-           -> Liste der Dateien (nur Metadaten)
-
-      GET  /@ai-prompt-files/{prompt_id}/{file_id}
-           -> Metadaten + base64-kodierter Inhalt
-
-      POST /@ai-prompt-files/{prompt_id}
-           -> Datei(en) hochladen (Inhalt in Annotations, base64)
-
+    """
+    Handles:
+      GET    /@ai-prompt-files/{prompt_id}
+      GET    /@ai-prompt-files/{prompt_id}/{file_id}
+      POST   /@ai-prompt-files/{prompt_id}
       DELETE /@ai-prompt-files/{prompt_id}/{file_id}
-           -> Datei aus den Annotations entfernen
     """
 
     def __init__(self, context, request):
@@ -129,7 +120,6 @@ class PromptFilesService(Service):
         prompts, prompt = _find_prompt(self.prompt_id)
 
         files = None
-
         if hasattr(self.request, "form"):
             files = self.request.form.get("file")
 
@@ -168,7 +158,6 @@ class PromptFilesService(Service):
 
         if "files" not in prompt:
             prompt["files"] = []
-
         prompt["files"].extend(uploaded_items)
         _save(prompts)
 
@@ -183,24 +172,58 @@ class PromptFilesService(Service):
             for f in uploaded_items
         ]
 
-        return {
-            "promptId": self.prompt_id,
-            "uploaded": public_items,
-        }
+        return {"promptId": self.prompt_id, "uploaded": public_items}
 
     def delete_file(self):
         if not self.file_id:
             raise BadRequest("Missing file ID")
 
         prompts, prompt = _find_prompt(self.prompt_id)
-
         prompt["files"] = [
             f for f in prompt.get("files", []) if f.get("id") != self.file_id
         ]
-
         _save(prompts)
 
-        return {
-            "promptId": self.prompt_id,
-            "deleted": self.file_id,
-        }
+        return {"promptId": self.prompt_id, "deleted": self.file_id}
+
+    @implementer(IPublishTraverse)
+    class PromptFileDownloadService(Service):
+        """
+        GET /@ai-prompt-files-download/{prompt_id}/{file_id}
+
+        Returns the file as binary download.
+        """
+
+        def __init__(self, context, request):
+            super().__init__(context, request)
+            self.prompt_id = None
+            self.file_id = None
+
+        def publishTraverse(self, request, name):
+            if self.prompt_id is None:
+                self.prompt_id = name
+            else:
+                self.file_id = name
+            return self
+
+        def reply(self):
+            if not self.prompt_id or not self.file_id:
+                raise BadRequest("Missing prompt_id or file_id")
+
+            prompts, prompt = _find_prompt(self.prompt_id)
+            f = _find_file(prompt, self.file_id)
+            if not f:
+                raise BadRequest(f"File '{self.file_id}' not found")
+
+            raw = base64.b64decode(f.get("data", ""))
+
+            self.request.response.setHeader(
+                "Content-Type", f.get("content_type", "application/octet-stream")
+            )
+            self.request.response.setHeader(
+                "Content-Disposition",
+                f'attachment; filename="{f.get("filename")}"',
+            )
+            self.request.response.setHeader("Content-Length", str(len(raw)))
+
+            return raw
