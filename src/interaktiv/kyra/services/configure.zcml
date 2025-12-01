@@ -5,6 +5,9 @@
 
     <include package="plone.restapi" file="meta.zcml" />
 
+    <!-- ===============================
+         AI ASSISTANT SETTINGS
+         =============================== -->
     <plone:service
         method="GET"
         name="@ai-assistant-settings"
@@ -21,132 +24,71 @@
         permission="interaktiv.kyra.manage.settings"
     />
 
-
-<!-- ===============================
-     AI PROMPTS
-     =============================== -->
-<plone:service
-    method="GET"
-    name="@ai-prompts"
-    factory=".ai_prompts.AIPromptsGet"
-    for="plone.base.interfaces.IPloneSiteRoot"
-    permission="interaktiv.kyra.prompts.get"
-/>
-
-<plone:service
-    method="POST"
-    name="@ai-prompts"
-    factory=".ai_prompts.AIPromptsPost"
-    for="plone.base.interfaces.IPloneSiteRoot"
-    permission="interaktiv.kyra.prompts.create"
-/>
-
-<plone:service
-    method="PATCH"
-    name="@ai-prompts"
-    factory=".ai_prompts.AIPromptsPatch"
-    for="plone.base.interfaces.IPloneSiteRoot"
-    permission="interaktiv.kyra.prompts.update"
-/>
-
-<plone:service
-    method="DELETE"
-    name="@ai-prompts"
-    factory=".ai_prompts.AIPromptsDelete"
-    for="plone.base.interfaces.IPloneSiteRoot"
-    permission="interaktiv.kyra.prompts.delete"
-/>
-
     <!-- ===============================
-         PROMPTS — LIST (GET)
+         AI PROMPTS (Annotations)
          =============================== -->
     <plone:service
         method="GET"
-        factory=".prompts.PromptsGet"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsGet"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.prompts.get"
-        name="prompts"
     />
 
-    <!-- APPLY PROMPT (POST) -->
     <plone:service
         method="POST"
-        factory=".prompts.PromptsPost"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
-        permission="interaktiv.kyra.prompts.post"
-        name="prompts"
-    />
-
-    <!-- PROMPT CREATE (POST) -->
-    <plone:service
-        method="POST"
-        factory=".prompts.PromptCreate"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsPost"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.prompts.create"
-        name="prompts-create"
     />
 
-    <!-- PROMPT GET (single) -->
-    <plone:service
-        method="GET"
-        factory=".prompts.PromptGet"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
-        permission="interaktiv.kyra.prompts.get"
-        name="prompt"
-    />
-
-    <!-- PROMPT UPDATE (PATCH) -->
     <plone:service
         method="PATCH"
-        factory=".prompts.PromptUpdate"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsPatch"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.prompts.update"
-        name="prompt"
     />
 
-    <!-- PROMPT DELETE (DELETE) -->
     <plone:service
         method="DELETE"
-        factory=".prompts.PromptDelete"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsDelete"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.prompts.delete"
-        name="prompt"
     />
 
-    <!-- FILES LIST (GET) -->
+    <!-- ===============================
+         PROMPT FILES (global)
+         /++api++/@ai-prompt-files/{prompt_id}[/{file_id}]
+         =============================== -->
+
+    <!-- LIST FILES -->
     <plone:service
         method="GET"
-        factory=".prompts.FilesList"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompt-files"
+        factory=".prompt_files.PromptFilesService"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.files.get"
-        name="prompt-files"
     />
 
-    <!-- FILE UPLOAD (POST) -->
+    <!-- UPLOAD FILE -->
     <plone:service
         method="POST"
-        factory=".prompts.FileUpload"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompt-files"
+        factory=".prompt_files.PromptFilesService"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.files.upload"
-        name="prompt-files"
     />
 
-    <!-- FILE DELETE (DELETE) -->
+    <!-- DELETE FILE -->
     <plone:service
         method="DELETE"
-        factory=".prompts.FileDelete"
-        for="plone.dexterity.interfaces.IDexterityContent"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
+        name="@ai-prompt-files"
+        factory=".prompt_files.PromptFilesService"
+        for="plone.base.interfaces.IPloneSiteRoot"
         permission="interaktiv.kyra.files.delete"
-        name="prompt-files"
     />
 
 </configure>
