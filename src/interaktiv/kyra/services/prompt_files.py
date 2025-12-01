@@ -47,13 +47,6 @@ def _find_file(prompt, file_id):
 
 @implementer(IPublishTraverse)
 class PromptFilesService(Service):
-    """
-    Handles:
-      GET    /@ai-prompt-files/{prompt_id}
-      GET    /@ai-prompt-files/{prompt_id}/{file_id}
-      POST   /@ai-prompt-files/{prompt_id}
-      DELETE /@ai-prompt-files/{prompt_id}/{file_id}
-    """
 
     def __init__(self, context, request):
         super().__init__(context, request)
@@ -122,10 +115,8 @@ class PromptFilesService(Service):
         files = None
         if hasattr(self.request, "form"):
             files = self.request.form.get("file")
-
         if files is None and "file" in self.request:
             files = self.request["file"]
-
         if files is None:
             raise BadRequest("No file provided")
 
@@ -161,18 +152,19 @@ class PromptFilesService(Service):
         prompt["files"].extend(uploaded_items)
         _save(prompts)
 
-        public_items = [
-            {
-                "id": f["id"],
-                "filename": f["filename"],
-                "size": f["size"],
-                "created": f["created"],
-                "content_type": f["content_type"],
-            }
-            for f in uploaded_items
-        ]
-
-        return {"promptId": self.prompt_id, "uploaded": public_items}
+        return {
+            "promptId": self.prompt_id,
+            "uploaded": [
+                {
+                    "id": f["id"],
+                    "filename": f["filename"],
+                    "size": f["size"],
+                    "created": f["created"],
+                    "content_type": f["content_type"],
+                }
+                for f in uploaded_items
+            ],
+        }
 
     def delete_file(self):
         if not self.file_id:
@@ -186,44 +178,43 @@ class PromptFilesService(Service):
 
         return {"promptId": self.prompt_id, "deleted": self.file_id}
 
-    @implementer(IPublishTraverse)
-    class PromptFileDownloadService(Service):
-        """
-        GET /@ai-prompt-files-download/{prompt_id}/{file_id}
 
-        Returns the file as binary download.
-        """
+@implementer(IPublishTraverse)
+class PromptFileDownloadService(Service):
+    """
+    GET /@ai-prompt-files-download/{prompt_id}/{file_id}
+    """
 
-        def __init__(self, context, request):
-            super().__init__(context, request)
-            self.prompt_id = None
-            self.file_id = None
+    def __init__(self, context, request):
+        super().__init__(context, request)
+        self.prompt_id = None
+        self.file_id = None
 
-        def publishTraverse(self, request, name):
-            if self.prompt_id is None:
-                self.prompt_id = name
-            else:
-                self.file_id = name
-            return self
+    def publishTraverse(self, request, name):
+        if self.prompt_id is None:
+            self.prompt_id = name
+        else:
+            self.file_id = name
+        return self
 
-        def reply(self):
-            if not self.prompt_id or not self.file_id:
-                raise BadRequest("Missing prompt_id or file_id")
+    def reply(self):
+        if not self.prompt_id or not self.file_id:
+            raise BadRequest("Missing prompt_id or file_id")
 
-            prompts, prompt = _find_prompt(self.prompt_id)
-            f = _find_file(prompt, self.file_id)
-            if not f:
-                raise BadRequest(f"File '{self.file_id}' not found")
+        prompts, prompt = _find_prompt(self.prompt_id)
+        f = _find_file(prompt, self.file_id)
+        if not f:
+            raise BadRequest(f"File '{self.file_id}' not found")
 
-            raw = base64.b64decode(f.get("data", ""))
+        raw = base64.b64decode(f.get("data", ""))
 
-            self.request.response.setHeader(
-                "Content-Type", f.get("content_type", "application/octet-stream")
-            )
-            self.request.response.setHeader(
-                "Content-Disposition",
-                f'attachment; filename="{f.get("filename")}"',
-            )
-            self.request.response.setHeader("Content-Length", str(len(raw)))
+        self.request.response.setHeader(
+            "Content-Type", f.get("content_type", "application/octet-stream")
+        )
+        self.request.response.setHeader(
+            "Content-Disposition",
+            f'attachment; filename="{f.get("filename")}"',
+        )
+        self.request.response.setHeader("Content-Length", str(len(raw)))
 
-            return raw
+        return raw
