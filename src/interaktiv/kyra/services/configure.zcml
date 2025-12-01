@@ -22,6 +22,41 @@
     />
 
 
+<!-- ===============================
+     AI PROMPTS
+     =============================== -->
+<plone:service
+    method="GET"
+    name="@ai-prompts"
+    factory=".ai_prompts.AIPromptsGet"
+    for="plone.base.interfaces.IPloneSiteRoot"
+    permission="interaktiv.kyra.prompts.get"
+/>
+
+<plone:service
+    method="POST"
+    name="@ai-prompts"
+    factory=".ai_prompts.AIPromptsPost"
+    for="plone.base.interfaces.IPloneSiteRoot"
+    permission="interaktiv.kyra.prompts.create"
+/>
+
+<plone:service
+    method="PATCH"
+    name="@ai-prompts"
+    factory=".ai_prompts.AIPromptsPatch"
+    for="plone.base.interfaces.IPloneSiteRoot"
+    permission="interaktiv.kyra.prompts.update"
+/>
+
+<plone:service
+    method="DELETE"
+    name="@ai-prompts"
+    factory=".ai_prompts.AIPromptsDelete"
+    for="plone.base.interfaces.IPloneSiteRoot"
+    permission="interaktiv.kyra.prompts.delete"
+/>
+
     <!-- ===============================
          PROMPTS — LIST (GET)
          =============================== -->
