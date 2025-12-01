@@ -25,7 +25,7 @@
     />
 
     <!-- ===============================
-         AI PROMPTS (Annotations)
+         AI PROMPTS
          =============================== -->
     <plone:service
         method="GET"
@@ -60,8 +60,7 @@
     />
 
     <!-- ===============================
-         PROMPT FILES (global)
-         /++api++/@ai-prompt-files/{prompt_id}[/{file_id}]
+         PROMPT FILES
          =============================== -->
 
     <!-- LIST FILES -->

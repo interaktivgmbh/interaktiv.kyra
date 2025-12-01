@@ -10,7 +10,6 @@ from zExceptions import BadRequest
 ANNOTATION_KEY = "kyra.prompts"
 
 
-# Annotation helpers
 def _get_annotations():
     portal = api.portal.get()
     ann = portal.__annotations__
@@ -39,7 +38,6 @@ class PromptFilesService(Service):
         self.prompt_id = None
         self.file_id = None
 
-    # URL /++api++/@ai-prompt-files/{prompt_id}/{file_id?}
     def publishTraverse(self, request, name):
         if self.prompt_id is None:
             self.prompt_id = name
@@ -47,7 +45,6 @@ class PromptFilesService(Service):
             self.file_id = name
         return self
 
-    # Router
     def reply(self):
         method = self.request["REQUEST_METHOD"]
 
@@ -60,7 +57,6 @@ class PromptFilesService(Service):
 
         raise BadRequest("Unsupported HTTP method")
 
-    # Helpers
     def find_prompt(self):
         prompts = _get()
         for p in prompts:
@@ -68,22 +64,18 @@ class PromptFilesService(Service):
                 return p, prompts
         raise BadRequest(f"Prompt '{self.prompt_id}' not found")
 
-    # GET /@ai-prompt-files/{prompt_id}
     def list_files(self):
         prompt, _ = self.find_prompt()
         return {"files": prompt.get("files", [])}
 
-    # POST /@ai-prompt-files/{prompt_id}
     def upload_files(self):
         prompt, prompts = self.find_prompt()
 
         files = None
 
-        # Standard Zope form
         if hasattr(self.request, "form"):
             files = self.request.form.get("file")
 
-        # Fallback
         if files is None and "file" in self.request:
             files = self.request["file"]
 
@@ -118,7 +110,6 @@ class PromptFilesService(Service):
 
         return {"uploaded": uploaded_items}
 
-    # DELETE /@ai-prompt-files/{prompt_id}/{file_id}
     def delete_file(self):
         if not self.file_id:
             raise BadRequest("Missing file ID")
