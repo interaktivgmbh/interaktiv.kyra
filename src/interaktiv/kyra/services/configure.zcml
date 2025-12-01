@@ -24,6 +24,7 @@
         permission="interaktiv.kyra.manage.settings"
     />
 
+
     <!-- ===============================
          AI PROMPTS
          =============================== -->
@@ -59,11 +60,11 @@
         permission="interaktiv.kyra.prompts.delete"
     />
 
+
     <!-- ===============================
          PROMPT FILES
          =============================== -->
 
-    <!-- LIST FILES -->
     <plone:service
         method="GET"
         name="@ai-prompt-files"
@@ -72,7 +73,6 @@
         permission="interaktiv.kyra.files.get"
     />
 
-    <!-- UPLOAD FILE -->
     <plone:service
         method="POST"
         name="@ai-prompt-files"
@@ -81,7 +81,6 @@
         permission="interaktiv.kyra.files.upload"
     />
 
-    <!-- DELETE FILE -->
     <plone:service
         method="DELETE"
         name="@ai-prompt-files"

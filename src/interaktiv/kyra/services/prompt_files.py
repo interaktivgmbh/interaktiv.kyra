@@ -1,11 +1,13 @@
 import uuid
 import time
+import base64
 
 from plone import api
 from plone.restapi.services import Service
+from zExceptions import BadRequest
+
 from zope.interface import implementer
 from zope.publisher.interfaces import IPublishTraverse
-from zExceptions import BadRequest
 
 ANNOTATION_KEY = "kyra.prompts"
 
@@ -29,9 +31,38 @@ def _get():
     return ann.get(ANNOTATION_KEY, [])
 
 
+def _find_prompt(prompt_id):
+    prompts = _get()
+    for p in prompts:
+        if p.get("id") == prompt_id:
+            return prompts, p
+    raise BadRequest(f"Prompt '{prompt_id}' not found")
+
+
+def _find_file(prompt, file_id):
+    for f in prompt.get("files", []):
+        if f.get("id") == file_id:
+            return f
+    return None
+
+
 @implementer(IPublishTraverse)
 class PromptFilesService(Service):
-    """Handles GET, POST, DELETE for /@ai-prompt-files/{prompt_id}[/{file_id}]"""
+    """Handles GET, POST, DELETE for /@ai-prompt-files/{prompt_id}/{file_id}
+
+    Varianten:
+      GET  /@ai-prompt-files/{prompt_id}
+           -> Liste der Dateien (nur Metadaten)
+
+      GET  /@ai-prompt-files/{prompt_id}/{file_id}
+           -> Metadaten + base64-kodierter Inhalt
+
+      POST /@ai-prompt-files/{prompt_id}
+           -> Datei(en) hochladen (Inhalt in Annotations, base64)
+
+      DELETE /@ai-prompt-files/{prompt_id}/{file_id}
+           -> Datei aus den Annotations entfernen
+    """
 
     def __init__(self, context, request):
         super().__init__(context, request)
@@ -49,27 +80,53 @@ class PromptFilesService(Service):
         method = self.request["REQUEST_METHOD"]
 
         if method == "GET":
+            if self.file_id:
+                return self.get_file()
             return self.list_files()
+
         if method == "POST":
             return self.upload_files()
+
         if method == "DELETE":
             return self.delete_file()
 
         raise BadRequest("Unsupported HTTP method")
 
-    def find_prompt(self):
-        prompts = _get()
-        for p in prompts:
-            if p.get("id") == self.prompt_id:
-                return p, prompts
-        raise BadRequest(f"Prompt '{self.prompt_id}' not found")
-
     def list_files(self):
-        prompt, _ = self.find_prompt()
-        return {"files": prompt.get("files", [])}
+        _, prompt = _find_prompt(self.prompt_id)
+        files = prompt.get("files", [])
+
+        public_files = [
+            {
+                "id": f.get("id"),
+                "filename": f.get("filename"),
+                "size": f.get("size"),
+                "created": f.get("created"),
+                "content_type": f.get("content_type"),
+            }
+            for f in files
+        ]
+
+        return {"promptId": self.prompt_id, "files": public_files}
+
+    def get_file(self):
+        _, prompt = _find_prompt(self.prompt_id)
+        f = _find_file(prompt, self.file_id)
+        if not f:
+            raise BadRequest(f"File '{self.file_id}' not found")
+
+        return {
+            "promptId": self.prompt_id,
+            "id": f.get("id"),
+            "filename": f.get("filename"),
+            "size": f.get("size"),
+            "created": f.get("created"),
+            "content_type": f.get("content_type"),
+            "data": f.get("data"),
+        }
 
     def upload_files(self):
-        prompt, prompts = self.find_prompt()
+        prompts, prompt = _find_prompt(self.prompt_id)
 
         files = None
 
@@ -88,33 +145,54 @@ class PromptFilesService(Service):
         uploaded_items = []
 
         for f in files:
-            if not hasattr(f, "filename"):
-                continue
+            raw = f.read()
+            b64 = base64.b64encode(raw).decode("ascii")
 
-            file_content = f.read()
+            headers = getattr(f, "headers", None) or {}
+            content_type = (
+                headers.get("content-type")
+                or getattr(f, "content_type", None)
+                or "application/octet-stream"
+            )
 
             info = {
                 "id": str(uuid.uuid4()),
-                "filename": f.filename,
-                "size": len(file_content or b""),
+                "filename": getattr(f, "filename", ""),
+                "content_type": content_type,
+                "size": len(raw),
                 "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "data": b64,
             }
 
             uploaded_items.append(info)
 
-        if not uploaded_items:
-            raise BadRequest("No valid file data received")
+        if "files" not in prompt:
+            prompt["files"] = []
 
-        prompt.setdefault("files", []).extend(uploaded_items)
+        prompt["files"].extend(uploaded_items)
         _save(prompts)
 
-        return {"uploaded": uploaded_items}
+        public_items = [
+            {
+                "id": f["id"],
+                "filename": f["filename"],
+                "size": f["size"],
+                "created": f["created"],
+                "content_type": f["content_type"],
+            }
+            for f in uploaded_items
+        ]
+
+        return {
+            "promptId": self.prompt_id,
+            "uploaded": public_items,
+        }
 
     def delete_file(self):
         if not self.file_id:
             raise BadRequest("Missing file ID")
 
-        prompt, prompts = self.find_prompt()
+        prompts, prompt = _find_prompt(self.prompt_id)
 
         prompt["files"] = [
             f for f in prompt.get("files", []) if f.get("id") != self.file_id
@@ -122,4 +200,7 @@ class PromptFilesService(Service):
 
         _save(prompts)
 
-        return {"deleted": self.file_id}
+        return {
+            "promptId": self.prompt_id,
+            "deleted": self.file_id,
+        }
