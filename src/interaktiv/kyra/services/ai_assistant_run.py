@@ -1,5 +1,3 @@
-# src/interaktiv/kyra/services/ai_assistant_run.py
-
 from plone.restapi.services import Service
 from plone.restapi.deserializer import json_body
 from plone import api
@@ -8,8 +6,8 @@ from zExceptions import BadRequest
 import json
 import requests
 
-# Bevorzugte Ergebnis-Felder in der Gateway-Response
 PREFERRED_TEXT_KEYS = (
+    "response",
     "result",
     "text",
     "output",
@@ -18,11 +16,12 @@ PREFERRED_TEXT_KEYS = (
     "message",
 )
 
-# Felder, die nur Meta sind und NICHT als Ergebnistext dienen sollen
 IGNORED_META_KEYS = {
     "id",
     "name",
     "prompt",
+    "promptId",
+    "promptName",
     "domainId",
     "modelId",
     "modelProvider",
@@ -30,9 +29,13 @@ IGNORED_META_KEYS = {
     "updatedAt",
     "description",
     "metadata",
+    "query",
+    "contextUsed",
+    "tokenUsage",
+    "executionTimeMs",
+    "model",
 }
 
-# In den portal_annotations gespeicherte Prompts
 ANNOTATION_KEY = "kyra.prompts"
 
 
@@ -83,27 +86,23 @@ def _extract_text_from_data(data):
     if data is None:
         return ""
 
-    # 1) Direkte Kandidaten auf Top-Level
     if isinstance(data, dict):
         for key in PREFERRED_TEXT_KEYS:
             value = data.get(key)
             if isinstance(value, str) and value.strip():
                 return value
 
-    # 2) Rekursive Suche
     def _search(obj):
         if isinstance(obj, str) and obj.strip():
             return obj
 
         if isinstance(obj, dict):
-            # erst bevorzugte Keys probieren
             for key in PREFERRED_TEXT_KEYS:
                 if key in obj:
                     found = _search(obj[key])
                     if found:
                         return found
 
-            # danach alle anderen Keys, Meta-Felder überspringen
             for key, value in obj.items():
                 if key in IGNORED_META_KEYS:
                     continue
@@ -140,7 +139,6 @@ class AIAssistantRun(Service):
     """
 
     def reply(self):
-        # Registry-Helper aus den Settings wiederverwenden
         from .ai_assistant_settings import _get_registry, _serialize
 
         data = json_body(self.request) or {}
@@ -153,14 +151,12 @@ class AIAssistantRun(Service):
 
         local_prompt_id = prompt.get("id")
 
-        # Prompt aus den portal_annotations holen, um z.B. gateway_id mitzunehmen
         stored = _get_stored_prompt(local_prompt_id)
         if stored:
             merged = stored.copy()
-            merged.update(prompt)  # Request kann Felder überschreiben
+            merged.update(prompt)
             prompt = merged
 
-        # Settings aus portal_registry holen
         registry = _get_registry()
         settings = _serialize(registry)
 
@@ -177,7 +173,6 @@ class AIAssistantRun(Service):
                 "Keycloak Realms URL, client_id or client_secret not configured"
             )
 
-        # 1) Token bei Keycloak holen
         token_url = f"{realm_url}/protocol/openid-connect/token"
         token_res = requests.post(
             token_url,
@@ -197,12 +192,10 @@ class AIAssistantRun(Service):
         if not access_token:
             raise BadRequest("Keycloak response has no access_token")
 
-        # Prompt-Daten
         name = prompt.get("name") or ""
         prompt_text = prompt.get("text") or ""
         action_type = prompt.get("actionType") or "replace"
 
-        # Remote-ID (falls schon bekannt), sonst lokale ID benutzen
         remote_id = (
             prompt.get("gateway_id")
             or prompt.get("gatewayId")
@@ -215,7 +208,6 @@ class AIAssistantRun(Service):
             "x-domain-id": domain_id,
         }
 
-        # InstructionData-Schema: mindestens query (und optional input)
         payload = {
             "query": selection or "",
             "input": selection or "",
@@ -223,10 +215,8 @@ class AIAssistantRun(Service):
 
         apply_url = f"{gateway_url_base}/{remote_id}/apply"
 
-        # 2) Prompt im Gateway ausführen
         gateway_res = requests.post(apply_url, json=payload, headers=headers)
 
-        # 2a) Fallback: Prompt existiert im Gateway noch nicht -> anlegen & erneut ausführen
         if gateway_res.status_code == 404:
             try:
                 error_json = gateway_res.json()
@@ -252,7 +242,6 @@ class AIAssistantRun(Service):
                         created = {}
                     new_id = created.get("id")
                     if new_id:
-                        # Mapping lokal merken
                         _store_gateway_id(local_prompt_id, new_id)
                         remote_id = new_id
                         apply_url = f"{gateway_url_base}/{remote_id}/apply"
@@ -265,13 +254,11 @@ class AIAssistantRun(Service):
                 f"AI Gateway request failed: {gateway_res.status_code} {gateway_res.text}"
             )
 
-        # Response lesen
         try:
             gw_data = gateway_res.json() if gateway_res.content else {}
         except ValueError:
             gw_data = {"raw_text": gateway_res.text}
 
-        # Debug-Log im Backend
         try:
             print(
                 "[KYRA AI] Gateway response:",
@@ -280,7 +267,6 @@ class AIAssistantRun(Service):
         except Exception:
             print("[KYRA AI] Gateway response (non-JSON)", gw_data)
 
-        # Ergebnistext extrahieren
         result_text = _extract_text_from_data(gw_data)
 
         if not isinstance(result_text, str):
@@ -292,7 +278,6 @@ class AIAssistantRun(Service):
                 "gefunden (keine Keys wie 'result', 'text', 'output' etc.)."
             )
 
-        # actionType ggf. aus der Antwort übernehmen
         action_type = gw_data.get("actionType") or action_type
 
         return {

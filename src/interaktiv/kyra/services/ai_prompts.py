@@ -1,4 +1,3 @@
-# src/interaktiv/kyra/services/ai_prompts.py
 import json
 import uuid
 import time

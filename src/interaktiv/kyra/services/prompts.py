@@ -9,9 +9,7 @@ from zope.interface import implementer
 from zope.publisher.interfaces import IPublishTraverse
 
 
-# 🔹 LIST + APPLY (bereits vorhanden)
 class PromptsGet(ServiceBase):
-
     page: int
     size: int
 
@@ -59,7 +57,6 @@ class PromptsPost(ServiceBase):
         return self.kyra.prompts.apply(prompt_id, payload)
 
 
-# 🔥 NEU — Einzelnen Prompt abrufen
 class PromptGet(ServiceBase):
 
     def __init__(self, context, request):
@@ -72,7 +69,6 @@ class PromptGet(ServiceBase):
         return self.kyra.prompts.get(self.prompt_id)
 
 
-# 🔥 NEU — Prompt erstellen
 class PromptCreate(ServiceBase):
 
     def reply(self):
@@ -92,7 +88,6 @@ class PromptCreate(ServiceBase):
         return self.kyra.prompts.create(payload)
 
 
-# 🔥 NEU — Prompt aktualisieren
 @implementer(IPublishTraverse)
 class PromptUpdate(ServiceBase):
 
@@ -113,7 +108,6 @@ class PromptUpdate(ServiceBase):
         return self.kyra.prompts.update(prompt_id, body)
 
 
-# 🔥 NEU — Prompt löschen
 @implementer(IPublishTraverse)
 class PromptDelete(ServiceBase):
 
@@ -133,7 +127,6 @@ class PromptDelete(ServiceBase):
         return self.kyra.prompts.delete(prompt_id)
 
 
-# 🔥 NEU — Dateien abrufen
 @implementer(IPublishTraverse)
 class FilesList(ServiceBase):
 
@@ -153,7 +146,6 @@ class FilesList(ServiceBase):
         return self.kyra.files.get(prompt_id)
 
 
-# 🔥 NEU — Datei hochladen
 @implementer(IPublishTraverse)
 class FileUpload(ServiceBase):
 
@@ -177,7 +169,6 @@ class FileUpload(ServiceBase):
         return self.kyra.files.upload(self.prompt_id, file_obj)
 
 
-# 🔥 NEU — Datei löschen
 @implementer(IPublishTraverse)
 class FileDelete(ServiceBase):
 

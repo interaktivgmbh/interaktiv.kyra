@@ -1,12 +1,8 @@
-# src/interaktiv/kyra/services/ai_assistant_settings.py
-
 from plone.restapi.services import Service
 from plone.restapi.deserializer import json_body
 from plone import api
 from zExceptions import BadRequest
 
-# Registry-Records basieren auf deinem registry.xml:
-# <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"/>
 REGISTRY_PREFIX = "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"
 
 FIELDS = (
@@ -24,15 +20,14 @@ def _key(name: str) -> str:
 
 
 def _get_registry():
-    # klassisches portal_registry-Tool
     return api.portal.get_tool("portal_registry")
 
 
 def _serialize(registry):
     """Immer die aktuell gespeicherten Werte aus portal_registry holen."""
+
     def get(name, default):
         record_name = _key(name)
-        # records[] existiert nur, wenn der Eintrag wirklich registriert wurde
         if record_name in registry.records:
             return registry[record_name]
         return default
@@ -83,5 +78,4 @@ class AIAssistantSettingsPatch(Service):
 
             registry[_key(name)] = value
 
-        # nach dem Speichern die echten Registry-Werte zurückgeben
         return _serialize(registry)

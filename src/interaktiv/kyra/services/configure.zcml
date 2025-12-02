@@ -5,9 +5,6 @@
 
     <include package="plone.restapi" file="meta.zcml" />
 
-    <!-- ===============================
-         AI ASSISTANT SETTINGS
-         =============================== -->
     <plone:service
         method="GET"
         name="@ai-assistant-settings"
@@ -24,9 +21,6 @@
         permission="interaktiv.kyra.manage.settings"
     />
 
-    <!-- ===============================
-         AI PROMPTS CRUD
-         =============================== -->
     <plone:service
         method="GET"
         name="@ai-prompts"
@@ -59,9 +53,6 @@
         permission="interaktiv.kyra.prompts.delete"
     />
 
-    <!-- ===============================
-         PROMPT FILES
-         =============================== -->
     <plone:service
         method="GET"
         name="@ai-prompt-files"
@@ -86,9 +77,6 @@
         permission="interaktiv.kyra.files.delete"
     />
 
-    <!-- ===============================
-         DOWNLOAD FILE
-         =============================== -->
     <plone:service
         method="GET"
         name="@ai-prompt-files-download"
@@ -97,9 +85,6 @@
         permission="interaktiv.kyra.files.get"
     />
 
-    <!-- ===============================
-         AI ASSISTANT RUN
-         =============================== -->
     <plone:service
         method="POST"
         name="@ai-assistant-run"
