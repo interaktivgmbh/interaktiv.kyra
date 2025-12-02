@@ -97,4 +97,15 @@
         permission="interaktiv.kyra.files.get"
     />
 
+    <!-- ===============================
+         AI ASSISTANT RUN
+         =============================== -->
+    <plone:service
+        method="POST"
+        name="@ai-assistant-run"
+        factory=".ai_assistant_run.AIAssistantRun"
+        for="*"
+        permission="interaktiv.kyra.prompts.post"
+    />
+
 </configure>
