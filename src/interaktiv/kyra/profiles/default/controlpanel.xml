@@ -15,7 +15,7 @@
         url_expr="string:${portal_url}/@@ai-assistant-settings"
         visible="True"
         i18n:attributes="title">
-        <permission>Manage portal</permission>
+        <permission>AIAssistant: Manage Settings</permission>
     </configlet>
 
     <!-- AI Prompt Manager -->
@@ -29,7 +29,7 @@
         url_expr="string:${portal_url}/@@ai-prompt-manager"
         visible="True"
         i18n:attributes="title">
-        <permission>Manage portal</permission>
+        <permission>AIAssistant: Manage Settings</permission>
     </configlet>
 
 </object>
