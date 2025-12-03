@@ -96,7 +96,7 @@
           <tr tal:repeat="prompt prompts">
             <td>${python: prompt.get('name', 'Prompt Name')}</td>
             <td>${python: prompt.get('description', 'Beschreibung')}</td>
-            <tal:metadata define="metadata python: prompt.get('metadata', {})">
+            <tal:metadata define="metadata python: prompt.get('metadata', {}) or {}">
               <td>${python: ', '.join(metadata.get('categories', []))}</td>
               <td>${python: metadata.get('action_translation', '')}</td>
             </tal:metadata>

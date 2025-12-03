@@ -21,7 +21,7 @@
         <h1 class="documentFirstHeading" i18n:translate="trans_heading_edit_prompt">Edit Prompt</h1>
       </header>
 
-      <form method="post" enctype="multipart/form-data" tal:attributes="action python: request.getURL()" tal:define="metadata python: prompt.get('metadata', {})">
+      <form method="post" enctype="multipart/form-data" tal:attributes="action python: request.getURL()" tal:define="metadata python: prompt.get('metadata', {}) or {}">
         <input type="hidden" name="action" value="update" />
         <input type="hidden" name="prompt_id" tal:attributes="value python: prompt['id']" />
 

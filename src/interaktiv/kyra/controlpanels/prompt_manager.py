@@ -29,6 +29,9 @@ class PromptManagerView(PromptManagerBaseView):
         prompts = response.get('prompts', [])
         for prompt in prompts:
             metadata = prompt.get('metadata', {})
+            if not metadata:
+                continue
+
             action = metadata.get('action', '')
             if action == 'replace':
                 metadata['action_translation'] = replace_str
