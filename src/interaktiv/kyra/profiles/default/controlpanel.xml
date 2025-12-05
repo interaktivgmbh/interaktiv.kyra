@@ -29,7 +29,7 @@
         url_expr="string:${portal_url}/@@ai-prompt-manager"
         visible="True"
         i18n:attributes="title">
-        <permission>AIAssistant: Manage Settings</permission>
+        <permission>AIAssistant: Manage Prompts</permission>
     </configlet>
 
 </object>

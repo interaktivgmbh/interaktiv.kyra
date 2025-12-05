@@ -1,4 +1,4 @@
-from setuptools import setup, find_namespace_packages
+from setuptools import setup
 
 NAME = 'interaktiv.kyra'
 DESCRIPTION = 'KYRA integration for Plone.'
@@ -6,7 +6,7 @@ URL = 'https://github.com/interaktivgmbh/interaktiv.kyra'
 EMAIL = 'support@interaktiv.de'
 AUTHOR = 'Interaktiv GmbH'
 REQUIRES_PYTHON = '>=3.11'
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 REQUIRED = [
     'setuptools',
     'Plone>=6.1',
@@ -36,8 +36,6 @@ setup(
     author_email=EMAIL,
     url=URL,
     license='GPL version 2',
-    packages=find_namespace_packages(where='src'),
-    package_dir={'': 'src'},
     include_package_data=True,
     zip_safe=False,
     python_requires=REQUIRES_PYTHON,
