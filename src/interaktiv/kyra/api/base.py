@@ -1,3 +1,5 @@
+"""Base class for Kyra API client operations."""
+
 import time
 from typing import Tuple, Any, Dict
 
@@ -11,6 +13,10 @@ KEYCLOAK_TOKEN_EXPIRATION_TIME_DEFAULT = 1200
 
 
 class APIBase:
+    """Handles authentication via Keycloak, token management, and provides
+    a unified interface for making HTTP requests to the Kyra gateway service.
+    """
+
     gateway_url: str
     realms_url: str
     client_id: str
@@ -127,6 +133,7 @@ class APIBase:
             response = requests.request(method, url, headers=headers, timeout=30, **kwargs)
             response.raise_for_status()
 
+            # Handle successful responses
             if response.status_code in (200, 201) and hasattr(response, 'content'):
                 if 'application/json' in response.headers.get('content-type'):
                     return response.json()

@@ -1,3 +1,9 @@
+"""Translation service view for AI Assistant TinyMCE Plugin.
+
+Provides a JSON endpoint for fetching translated strings in the
+current user's language.
+"""
+
 import json
 
 from Products.Five import BrowserView
