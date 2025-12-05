@@ -19,7 +19,7 @@
         name="ai-prompt-manager"
         for="plone.base.interfaces.IPloneSiteRoot"
         class=".prompt_manager.PromptManagerView"
-        permission="interaktiv.kyra.manage.settings"
+        permission="interaktiv.kyra.manage.prompts"
         layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
     />
 
@@ -28,7 +28,7 @@
         name="ai-prompt-edit"
         for="plone.base.interfaces.IPloneSiteRoot"
         class=".prompt_edit.PromptEditView"
-        permission="interaktiv.kyra.manage.settings"
+        permission="interaktiv.kyra.manage.prompts"
         layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
     />
 

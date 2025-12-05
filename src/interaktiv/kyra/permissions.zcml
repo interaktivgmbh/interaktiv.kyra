@@ -12,5 +12,9 @@
       id="interaktiv.kyra.manage.settings"
       title="AIAssistant: Manage Settings"
   />
+  <permission
+      id="interaktiv.kyra.manage.prompts"
+      title="AIAssistant: Manage Prompts"
+  />
 
 </configure>
