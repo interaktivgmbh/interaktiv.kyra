@@ -6,6 +6,8 @@ from interaktiv.kyra.controlpanels.prompt_base import PromptManagerBaseView
 
 
 class PromptManagerView(PromptManagerBaseView):
+    """Plone controlpanel view for managing prompts in Kyra."""
+
     template = ViewPageTemplateFile('templates/prompt_manager.pt')
 
     def __call__(self) -> str:
@@ -24,7 +26,8 @@ class PromptManagerView(PromptManagerBaseView):
             self._add_message(response['error'], 'error')
             return []
 
-        replace_str =  _('trans_option_action_replace')
+        # Add translated action labels to metadata
+        replace_str = _('trans_option_action_replace')
         append_str = _('trans_option_action_append')
         prompts = response.get('prompts', [])
         for prompt in prompts:
@@ -65,12 +68,14 @@ class PromptManagerView(PromptManagerBaseView):
             }
         }
 
+        # Create prompt via API
         response = self.kyra.prompts.create(payload)
 
         if 'error' in response:
             self._add_message(response['error'], 'error')
             return
 
+        # Handle optional file upload
         prompt_id = response.get('id', '')
         file_field = self.request.form.get('file_upload')
         if file_field and prompt_id:
