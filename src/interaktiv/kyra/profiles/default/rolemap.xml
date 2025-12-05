@@ -14,8 +14,12 @@
       <role name="Site Administrator"/>
     </permission>
     <permission name="AIAssistant: Manage Settings" acquire="False">
-      <role name="Manager"/>
-      <role name="Site Administrator"/>
+        <role name="Site Administrator"/>
+        <role name="Manager"/>
+    </permission>
+    <permission name="AIAssistant: Manage Prompts" acquire="False">
+        <role name="Site Administrator"/>
+        <role name="Manager"/>
     </permission>
   </permissions>
 </rolemap>
