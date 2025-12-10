@@ -473,18 +473,3 @@ Support
 For issues:
 
 - Create an issue on the project repository
-
-Changelog
----------
-
-1.0.0 (Unreleased)
-~~~~~~~~~~~~~~~~~~
-
-- Initial release
-- KYRA API integration
-- Prompt management (CRUD operations)
-- File operations (upload, download, delete)
-- REST API endpoints
-- Keycloak authentication
-- Control panel configuration
-- Type-safe API with TypedDict support
