@@ -37,4 +37,9 @@
       name="ai-assist-settings"
     />
 
+    <adapter
+      factory=".prompt_manager.PromptManagerConfigletPanel"
+      name="ai-prompt-manager"
+      />
+
 </configure>
