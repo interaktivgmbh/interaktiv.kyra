@@ -4,6 +4,9 @@ from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from interaktiv.kyra import _
 from interaktiv.kyra.controlpanels.prompt_base import PromptManagerBaseView
 
+from zope.component import adapter
+from zope.interface import Interface
+from plone.restapi.controlpanels import RegistryConfigletPanel
 
 class PromptManagerView(PromptManagerBaseView):
     template = ViewPageTemplateFile('templates/prompt_manager.pt')
@@ -89,3 +92,15 @@ class PromptManagerView(PromptManagerBaseView):
             return
 
         self._add_message(_('trans_status_prompt_deleted'), 'info')
+
+
+
+
+@adapter(Interface, Interface)
+class PromptManagerConfigletPanel(RegistryConfigletPanel):
+    schema = None
+    schema_prefix = "interaktiv.kyra"
+    configlet_id = "ai-prompt-manager"
+    configlet_category_id = "Products"
+    title = "AI Prompt Manager"
+    group = "Products"
