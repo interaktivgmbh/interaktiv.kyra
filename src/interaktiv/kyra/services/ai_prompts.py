@@ -1,91 +1,114 @@
-import json
-import uuid
-import time
-from plone import api
-from plone.restapi.services import Service
+from typing import Any, Dict, List
+
+from interaktiv.kyra.api import KyraAPI
+from interaktiv.kyra.services.base import ServiceBase
 from plone.restapi.deserializer import json_body
 from zope.interface import implementer
 from zope.publisher.interfaces import IPublishTraverse
 from zExceptions import BadRequest
 
-ANNOTATION_KEY = "kyra.prompts"
+
+def _as_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
 
 
-def _get_annotations():
-    """Liefert oder erzeugt die portal_annotations für kyra.prompts"""
-    portal = api.portal.get()
-    annotations = portal.__annotations__
-    if ANNOTATION_KEY not in annotations:
-        annotations[ANNOTATION_KEY] = []
-    return annotations
+def _serialize_prompt(prompt: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = prompt.get("metadata") or {}
+    categories = _as_list(
+        metadata.get("categories") or prompt.get("categories") or []
+    )
+    action_type = metadata.get("action") or prompt.get("actionType") or "replace"
 
-
-def _save_prompts(data):
-    annotations = _get_annotations()
-    annotations[ANNOTATION_KEY] = data
-    return data
-
-
-def _get_prompts():
-    annotations = _get_annotations()
-    return annotations.get(ANNOTATION_KEY, [])
-
-
-def _serialize_prompt(prompt):
-    """Sorgt für einheitliche Ausgabe"""
     return {
-        "id": prompt.get("id"),
-        "name": prompt.get("name"),
-        "description": prompt.get("description", ""),
-        "text": prompt.get("text", ""),
-        "categories": prompt.get("categories", []),
-        "actionType": prompt.get("actionType", "replace"),
+        "id": prompt.get("id") or prompt.get("_id"),
+        "name": prompt.get("name") or "",
+        "description": prompt.get("description", "") or "",
+        "text": prompt.get("prompt") or prompt.get("text") or "",
+        "categories": categories,
+        "actionType": action_type,
         "files": prompt.get("files", []),
-        "created": prompt.get("created"),
-        "updated": prompt.get("updated"),
+        "created": (
+            prompt.get("created")
+            or prompt.get("createdAt")
+            or prompt.get("created_at")
+        ),
+        "updated": (
+            prompt.get("updated")
+            or prompt.get("updatedAt")
+            or prompt.get("updated_at")
+        ),
     }
 
 
-class AIPromptsGet(Service):
+def _build_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(data, dict):
+        raise BadRequest("JSON object expected")
+
+    name = data.get("name")
+    if not name:
+        raise BadRequest("Missing required field 'name'")
+
+    action_type = data.get("actionType") or data.get("action") or "replace"
+    categories = _as_list(data.get("categories"))
+
+    payload: Dict[str, Any] = {
+        "name": name,
+        "prompt": data.get("text") or data.get("prompt") or "",
+        "categories": categories,
+        "actionType": action_type,
+    }
+
+    if "description" in data:
+        payload["description"] = data.get("description") or ""
+
+    metadata: Dict[str, Any] = {}
+    if categories:
+        metadata["categories"] = categories
+    if action_type:
+        metadata["action"] = action_type
+    if metadata:
+        payload["metadata"] = metadata
+
+    return payload
+
+
+class AIPromptsGet(ServiceBase):
     """GET /++api++/@ai-prompts"""
 
     def reply(self):
-        prompts = _get_prompts()
+        response = self.kyra.prompts.list()
+        if isinstance(response, dict) and response.get("error"):
+            raise BadRequest(response.get("error"))
+
+        prompts = []
+        if isinstance(response, dict):
+            prompts = response.get("prompts") or response.get("items") or []
+        elif isinstance(response, list):
+            prompts = response
+
         return [_serialize_prompt(p) for p in prompts]
 
 
-class AIPromptsPost(Service):
+class AIPromptsPost(ServiceBase):
     """POST /++api++/@ai-prompts"""
 
     def reply(self):
-        data = json_body(self.request)
-        if not isinstance(data, dict):
-            raise BadRequest("JSON object expected")
+        data = json_body(self.request) or {}
+        payload = _build_payload(data)
 
-        name = data.get("name")
-        if not name:
-            raise BadRequest("Missing required field 'name'")
+        created = self.kyra.prompts.create(payload)
+        if isinstance(created, dict) and created.get("error"):
+            raise BadRequest(created.get("error"))
 
-        new_prompt = {
-            "id": str(uuid.uuid4()),
-            "name": name,
-            "description": data.get("description", ""),
-            "text": data.get("text", ""),
-            "categories": data.get("categories", []),
-            "actionType": data.get("actionType", "replace"),
-            "files": [],
-            "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-
-        prompts = _get_prompts()
-        prompts.append(new_prompt)
-        _save_prompts(prompts)
-        return _serialize_prompt(new_prompt)
+        return _serialize_prompt(created)
 
 
 @implementer(IPublishTraverse)
-class AIPromptsPatch(Service):
+class AIPromptsPatch(ServiceBase):
     """PATCH /++api++/@ai-prompts/{id}"""
 
     def __init__(self, context, request):
@@ -100,34 +123,18 @@ class AIPromptsPatch(Service):
         if not self.prompt_id:
             raise BadRequest("Missing prompt ID")
 
-        data = json_body(self.request)
-        if not isinstance(data, dict):
-            raise BadRequest("JSON object expected")
+        data = json_body(self.request) or {}
+        payload = _build_payload(data)
 
-        prompts = _get_prompts()
-        updated = None
-        for prompt in prompts:
-            if prompt.get("id") == self.prompt_id:
-                prompt.update({
-                    "name": data.get("name", prompt.get("name")),
-                    "description": data.get("description", prompt.get("description")),
-                    "text": data.get("text", prompt.get("text")),
-                    "categories": data.get("categories", prompt.get("categories")),
-                    "actionType": data.get("actionType", prompt.get("actionType")),
-                    "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
-                })
-                updated = prompt
-                break
+        updated = self.kyra.prompts.update(self.prompt_id, payload)
+        if isinstance(updated, dict) and updated.get("error"):
+            raise BadRequest(updated.get("error"))
 
-        if not updated:
-            raise BadRequest(f"Prompt {self.prompt_id} not found")
-
-        _save_prompts(prompts)
         return _serialize_prompt(updated)
 
 
 @implementer(IPublishTraverse)
-class AIPromptsDelete(Service):
+class AIPromptsDelete(ServiceBase):
     """DELETE /++api++/@ai-prompts/{id}"""
 
     def __init__(self, context, request):
@@ -142,10 +149,8 @@ class AIPromptsDelete(Service):
         if not self.prompt_id:
             raise BadRequest("Missing prompt ID")
 
-        prompts = _get_prompts()
-        new_prompts = [p for p in prompts if p.get("id") != self.prompt_id]
-        if len(new_prompts) == len(prompts):
-            raise BadRequest(f"Prompt {self.prompt_id} not found")
+        deleted = self.kyra.prompts.delete(self.prompt_id)
+        if isinstance(deleted, dict) and deleted.get("error"):
+            raise BadRequest(deleted.get("error"))
 
-        _save_prompts(new_prompts)
         return {"status": "deleted", "id": self.prompt_id}
