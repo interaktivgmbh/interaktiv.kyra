@@ -121,7 +121,6 @@ def _capabilities_for(context) -> Dict[str, Any]:
     }
 
 
-CHAT_PROMPT_ID = "kyra-chat-default"
 CHAT_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_chat_prompt_id"
 
 
@@ -139,42 +138,15 @@ def _build_chat_prompt_payload() -> Dict[str, Any]:
     }
 
 
-def _apply_prompt_fallback(
-    kyra,
-    messages: List[Dict[str, Any]],
-    data: Dict[str, Any],
-) -> Dict[str, Any]:
-    last_user = ""
-    for message in reversed(messages):
-        if message.get("role") == "user":
-            last_user = message.get("content") or ""
-            break
-
-    apply_payload: Dict[str, Any] = {"query": last_user, "input": last_user}
-    params = data.get("params") or {}
-    if isinstance(params, dict) and params.get("language"):
-        apply_payload["language"] = params.get("language")
-
-    cached_id = _get_cached_prompt_id()
-    if cached_id:
-        response = kyra.prompts.apply(cached_id, apply_payload)
-        if not (isinstance(response, dict) and response.get("error")):
-            return response
-        if not _is_not_found_error(str(response.get("error"))):
-            return response
-
-    response = kyra.prompts.apply(CHAT_PROMPT_ID, apply_payload)
-    if isinstance(response, dict) and response.get("error"):
-        message = str(response.get("error"))
-        if _is_not_found_error(message) or "invalid uuid" in message.lower():
-            created = kyra.prompts.create(_build_chat_prompt_payload())
-            if isinstance(created, dict) and created.get("error"):
-                return response
-            new_id = created.get("id") or created.get("_id")
-            if new_id:
-                _set_cached_prompt_id(new_id)
-                response = kyra.prompts.apply(new_id, apply_payload)
-    return response
+def _create_chat_prompt(kyra) -> Optional[str]:
+    created = kyra.prompts.create(_build_chat_prompt_payload())
+    if isinstance(created, dict) and created.get("error"):
+        return None
+    new_id = created.get("id") or created.get("_id")
+    if isinstance(new_id, str) and new_id.strip():
+        _set_cached_prompt_id(new_id)
+        return new_id
+    return None
 
 
 def _get_cached_prompt_id() -> Optional[str]:
@@ -194,9 +166,76 @@ def _set_cached_prompt_id(prompt_id: str) -> None:
     annotations[CHAT_PROMPT_CACHE_KEY] = prompt_id
 
 
+def _clear_cached_prompt_id() -> None:
+    portal = api.portal.get()
+    annotations = IAnnotations(portal)
+    if CHAT_PROMPT_CACHE_KEY in annotations:
+        del annotations[CHAT_PROMPT_CACHE_KEY]
+
+
+def _ensure_chat_prompt_id(kyra) -> Optional[str]:
+    cached = _get_cached_prompt_id()
+    if cached:
+        return cached
+    return _create_chat_prompt(kyra)
+
+
+def _apply_prompt_fallback(
+    kyra,
+    messages: List[Dict[str, Any]],
+    data: Dict[str, Any],
+) -> Dict[str, Any]:
+    last_user = ""
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            last_user = message.get("content") or ""
+            break
+
+    apply_payload: Dict[str, Any] = {"query": last_user, "input": last_user}
+    params = data.get("params") or {}
+    if isinstance(params, dict) and params.get("language"):
+        apply_payload["language"] = params.get("language")
+
+    prompt_id = _ensure_chat_prompt_id(kyra)
+    if not prompt_id:
+        return {"error": "Unable to create chat prompt"}
+
+    response = kyra.prompts.apply(prompt_id, apply_payload)
+    if isinstance(response, dict) and response.get("error"):
+        if (
+            _is_not_found_error(str(response.get("error")))
+            or _is_invalid_uuid_error_response(response)
+        ):
+            _clear_cached_prompt_id()
+            prompt_id = _ensure_chat_prompt_id(kyra)
+            if prompt_id:
+                response = kyra.prompts.apply(prompt_id, apply_payload)
+    return response
+
+
 def _is_not_found_error(message: str) -> bool:
     lowered = (message or "").lower()
     return "404" in lowered or "not found" in lowered
+
+
+def _is_invalid_uuid_error_response(response: Any) -> bool:
+    if not isinstance(response, dict):
+        return False
+
+    details = response.get("details") or []
+    if isinstance(details, list):
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            message = detail.get("message") or ""
+            if isinstance(message, str) and "invalid uuid" in message.lower():
+                return True
+
+    message = response.get("error") or response.get("message") or ""
+    if isinstance(message, str) and "invalid uuid" in message.lower():
+        return True
+
+    return False
 
 
 def _sse_event(event: str, payload: Any) -> str:
