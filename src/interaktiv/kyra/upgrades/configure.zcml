@@ -10,4 +10,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1000_to_v1010.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1010"
+            destination="1020"
+            title="Update rolemap for AI actions"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1010_to_v1020.upgrade"
+    />
 </configure>

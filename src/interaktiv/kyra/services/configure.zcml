@@ -93,4 +93,28 @@
         permission="interaktiv.kyra.prompts.post"
     />
 
+    <plone:service
+        method="POST"
+        name="@ai-chat"
+        factory=".ai_chat.AIChatService"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-capabilities"
+        factory=".ai_capabilities.AICapabilities"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-actions"
+        factory=".ai_actions.AIActionsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
 </configure>

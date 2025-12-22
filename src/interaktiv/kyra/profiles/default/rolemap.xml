@@ -17,5 +17,11 @@
       <role name="Manager"/>
       <role name="Site Administrator"/>
     </permission>
+    <permission name="AIAssistant: Apply Actions" acquire="False">
+      <role name="Editor"/>
+      <role name="Owner"/>
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
   </permissions>
 </rolemap>

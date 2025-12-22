@@ -4,6 +4,8 @@ from interaktiv.kyra.api import KyraAPI
 from plone.restapi.deserializer import json_body
 from plone.restapi.services import Service
 from zExceptions import BadRequest
+from plone.protect.interfaces import IDisableCSRFProtection
+from zope.interface import alsoProvides
 
 def _extract_text_from_data(data):
     """Extract the gateway's main response text. Our gateway returns 'response'."""
@@ -59,6 +61,7 @@ class AIAssistantRun(Service):
 
     def reply(self):
         data = json_body(self.request) or {}
+        alsoProvides(self.request, IDisableCSRFProtection)
 
         prompt = data.get("prompt") or {}
         selection = data.get("selection", "") or ""
@@ -86,22 +89,22 @@ class AIAssistantRun(Service):
         kyra = KyraAPI()
         gw_data = kyra.prompts.apply(remote_id, apply_payload)
 
+        temp_prompt_id = None
         if isinstance(gw_data, dict) and gw_data.get("error"):
-            error_message = gw_data.get("error")
+            # Create a temporary prompt in the gateway, apply, then delete to avoid polluting prompt manager.
             prompt_text = prompt.get("text") or prompt.get("prompt") or ""
-            message_lower = str(error_message).lower()
-
-            if prompt_text and ("404" in message_lower or "not found" in message_lower):
+            if prompt_text:
                 created = kyra.prompts.create(_build_prompt_payload(prompt))
                 if isinstance(created, dict) and created.get("error"):
                     raise BadRequest(created.get("error"))
-
-                new_id = created.get("id") or created.get("_id")
-                if not new_id:
+                temp_prompt_id = created.get("id") or created.get("_id")
+                if not temp_prompt_id:
                     raise BadRequest("AI Gateway did not return a prompt id")
-
-                gw_data = kyra.prompts.apply(new_id, apply_payload)
-
+                gw_data = kyra.prompts.apply(temp_prompt_id, apply_payload)
+                try:
+                    kyra.prompts.delete(temp_prompt_id)
+                except Exception:
+                    pass
             if isinstance(gw_data, dict) and gw_data.get("error"):
                 raise BadRequest(gw_data.get("error"))
 
@@ -119,10 +122,15 @@ class AIAssistantRun(Service):
             result_text = str(result_text)
 
         if not result_text.strip():
-            print(
-                "[KYRA AI] Hinweis: In der Gateway-Response wurde kein Ergebnistext "
-                "gefunden (keine Keys wie 'result', 'text', 'output' etc.)."
-            )
+            if isinstance(gw_data, dict):
+                fallback_err = gw_data.get("error") or gw_data.get("message") or ""
+                if fallback_err:
+                    result_text = f"AI unavailable: {fallback_err}"
+            if not result_text.strip():
+                print(
+                    "[KYRA AI] Hinweis: In der Gateway-Response wurde kein Ergebnistext "
+                    "gefunden (keine Keys wie 'result', 'text', 'output' etc.)."
+                )
 
         action_type = gw_data.get("actionType") or action_type
 

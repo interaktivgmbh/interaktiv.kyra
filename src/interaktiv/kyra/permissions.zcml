@@ -45,4 +45,9 @@
       title="AIAssistant: Delete File"
   />
 
+  <permission
+      id="interaktiv.kyra.actions.apply"
+      title="AIAssistant: Apply Actions"
+  />
+
 </configure>
