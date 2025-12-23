@@ -1,7 +1,10 @@
 import json
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from interaktiv.kyra.services.base import ServiceBase
+from interaktiv.kyra import logger
+from interaktiv.kyra.services.ai_context import build_context_documents, clean_text
 from plone import api
 from plone.restapi.deserializer import json_body
 from zExceptions import BadRequest
@@ -29,7 +32,7 @@ def _validate_messages(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     return normalized
 
 
-def _build_gateway_payload(data: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _build_gateway_payload(data: Dict[str, Any], messages: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], str]:
     payload: Dict[str, Any] = {"messages": messages}
     if data.get("conversation_id"):
         payload["conversation_id"] = data.get("conversation_id")
@@ -46,7 +49,7 @@ def _build_gateway_payload(data: Dict[str, Any], messages: List[Dict[str, Any]])
     if last_user:
         payload.setdefault("query", last_user)
         payload.setdefault("input", last_user)
-    return payload
+    return payload, last_user
 
 
 def _extract_assistant_text(data: Any) -> str:
@@ -213,10 +216,161 @@ def _apply_prompt_fallback(
     return response
 
 
+MAX_DOC_MESSAGE_TEXT = 1200
+CITATION_SNIPPET_LIMIT = 200
+
+
 def _is_not_found_error(message: str) -> bool:
     lowered = (message or "").lower()
     return "404" in lowered or "not found" in lowered
 
+
+def _build_system_message(context_docs: Dict[str, Any]) -> str:
+    mode = context_docs.get("mode") or "page"
+    documents = context_docs.get("documents") or []
+    lines = [
+        "You are Kyra AI, the helpful assistant for this Plone site.",
+        f"Mode: {mode}",
+        "Use ONLY the provided context documents to answer.",
+        "Cite your sources (title and URL) and do not invent information.",
+        "If the answer cannot be found in those documents, say you cannot find it on this website and ask what to search for next.",
+        "Context documents:",
+    ]
+    for doc in documents[:4]:
+        title = doc.get("title") or doc.get("url") or "Document"
+        url = doc.get("url", "")
+        snippet = (doc.get("text") or "")[:180].replace("\n", " ")
+        lines.append(f"- {title} ({url}): {snippet}")
+    return "\n".join(lines)
+
+
+def _format_context_doc_message(doc: Dict[str, Any]) -> Dict[str, str]:
+    content = f"Document: {doc.get('title')} ({doc.get('url')})\n\n{doc.get('text') or ''}"
+    truncated = content[:MAX_DOC_MESSAGE_TEXT]
+    return {"role": "tool", "content": truncated}
+
+
+def _build_citations(context_docs: Dict[str, Any]) -> List[Dict[str, Any]]:
+    mode = context_docs.get("mode") or "page"
+    page_doc = context_docs.get("page_doc") or {}
+    site_docs = context_docs.get("site_docs") or []
+    related_docs = context_docs.get("related_docs") or []
+    citation_candidates: List[Dict[str, Any]] = []
+    if page_doc:
+        citation_candidates.append(page_doc)
+    citation_candidates.extend(site_docs)
+    if mode in ("related", "search"):
+        citation_candidates.extend(related_docs)
+
+    citations: List[Dict[str, Any]] = []
+    seen = set()
+    for doc in citation_candidates:
+        if not doc:
+            continue
+        source_id = doc.get("id") or doc.get("url")
+        if not source_id or source_id in seen:
+            continue
+        seen.add(source_id)
+        snippet = _format_citation_snippet(doc)
+        label = doc.get("title") or doc.get("url") or "Document"
+        citations.append(
+            {
+                "source_id": source_id,
+                "label": label,
+                "url": doc.get("url") or "",
+                "snippet": snippet,
+            }
+        )
+        if len(citations) >= 5:
+            break
+    return citations
+
+
+def _build_used_context(context_docs: Dict[str, Any]) -> List[Dict[str, Any]]:
+    documents = context_docs.get("documents") or []
+    return [
+        {
+            "id": doc.get("id"),
+            "title": doc.get("title"),
+            "url": doc.get("url"),
+            "type": doc.get("type"),
+            "score": doc.get("score"),
+        }
+        for doc in documents
+    ]
+
+
+def _missing_page_content_message() -> str:
+    return (
+        "I can't access this page's content yet. Please check permissions or try again later."
+    )
+
+
+def _summarize_text(text: str, max_sentences: int = 3) -> str:
+    cleaned = clean_text(text)
+    if not cleaned:
+        return ""
+    separators = re.compile(r"(?<=[.!?])\s+")
+    sentences = [sentence.strip() for sentence in separators.split(cleaned) if sentence.strip()]
+    selected = sentences[:max_sentences] or sentences
+    if not selected:
+        return cleaned[:MAX_DOC_MESSAGE_TEXT]
+    bullets = "\n".join(f"- {sentence}" for sentence in selected)
+    return bullets
+
+
+def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> str:
+    page_doc = context_docs.get("page_doc") or {}
+    title = page_doc.get("title") or "This page"
+    mode = context_docs.get("mode") or "page"
+    query = context_docs.get("query")
+    summary_text = _summarize_text(page_doc.get("text") or "")
+    cleaned_query = clean_text(last_query or "")
+
+    if not summary_text:
+        return _missing_page_content_message()
+
+    if mode == "summarize":
+        return f"Summary of {title}:\n{summary_text}"
+    if mode in ("related", "search"):
+        label = query or title
+        verb = "related content" if mode == "related" else "search results"
+        return (
+            f"{verb.capitalize()} for '{label}' are not reachable right now. "
+            f"In the meantime, here is what I can share from {title}:\n{summary_text}"
+        )
+    if cleaned_query:
+        return (
+            f"Summary of {title} (regarding '{cleaned_query}'):\n{summary_text}\n"
+            "The live AI is unavailable right now, so I’m sharing the information from this page."
+        )
+    return f"Summary of {title}:\n{summary_text}"
+
+
+def _format_citation_snippet(doc: Dict[str, Any]) -> str:
+    snippet = clean_text(doc.get("text") or "")
+    if not snippet:
+        snippet = clean_text(doc.get("title") or doc.get("url") or "")
+    return snippet[:CITATION_SNIPPET_LIMIT].strip()
+
+
+def _local_fallback_response(
+    context_docs: Dict[str, Any], capabilities: Dict[str, Any], last_query: str
+) -> Dict[str, Any]:
+    page_doc = context_docs.get("page_doc") or {}
+    citations = _build_citations(context_docs)
+    summary_text = _build_fallback_message(context_docs, last_query)
+    logger.warning(
+        "[KYRA AI LOCAL FALLBACK] page=%s summary_len=%s",
+        page_doc.get("id"),
+        len(summary_text),
+    )
+    return {
+        "message": {"role": "assistant", "content": summary_text},
+        "citations": citations,
+        "capabilities": capabilities,
+        "used_context": _build_used_context(context_docs),
+    }
 
 def _is_invalid_uuid_error_response(response: Any) -> bool:
     if not isinstance(response, dict):
@@ -291,34 +445,109 @@ class AIChatService(ServiceBase):
             raise BadRequest("Unknown subpath")
         return super().__call__()
 
+    def _prepare_gateway_payload(
+        self, data: Dict[str, Any]
+    ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str, List[Dict[str, Any]]]:
+        messages = _validate_messages(data)
+        context_docs = build_context_documents(data.get("context"))
+        page_text = context_docs.get("page_doc", {}).get("text", "")
+        if not page_text:
+            return None, context_docs, "", messages
+
+        system_message = _build_system_message(context_docs)
+        doc_messages = [
+            _format_context_doc_message(doc)
+            for doc in (context_docs.get("documents") or [])[:3]
+        ]
+        gateway_messages = [{"role": "system", "content": system_message}] + doc_messages + messages
+        payload, last_user = _build_gateway_payload(data, gateway_messages)
+        payload["context_documents"] = context_docs.get("documents", [])
+        logger.debug(
+            "[KYRA AI DOCS] count=%s payload=%s",
+            len(doc_messages),
+            [doc.get("title") for doc in context_docs.get("documents") or []][:3],
+        )
+        logger.info(
+            "[KYRA AI PAYLOAD] mode=%s docs=%s page_id=%s",
+            context_docs.get("mode"),
+            len(context_docs.get("documents") or []),
+            context_docs.get("page_doc", {}).get("id"),
+        )
+        return payload, context_docs, last_user, messages
+
     def reply(self):
         data = json_body(self.request) or {}
         if not isinstance(data, dict):
             raise BadRequest("JSON object expected")
 
-        messages = _validate_messages(data)
-        payload = _build_gateway_payload(data, messages)
+        resolved_context = _resolve_context_from_payload(data)
+        capabilities = _capabilities_for(resolved_context)
+        payload, context_docs, last_query, messages = self._prepare_gateway_payload(data)
+
+        logger.info(
+            "[KYRA AI CONTEXT] mode=%s resolved=%s text_len=%s related=%s",
+            context_docs.get("mode"),
+            context_docs.get("resolved"),
+            context_docs.get("page_text_length"),
+            len(context_docs.get("related_docs") or []),
+        )
+
+        if not payload:
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": _missing_page_content_message(),
+                },
+                "citations": [],
+                "capabilities": capabilities,
+                "used_context": _build_used_context(context_docs),
+            }
+
+        messages_with_context = payload.get("messages", [])
         gateway_data = self.kyra.chat.send(payload)
+        logger.debug("[KYRA AI GATEWAY RESPONSE] %s", gateway_data)
+
         if isinstance(gateway_data, dict) and gateway_data.get("error"):
-            error_message = gateway_data.get("error")
-            if _is_not_found_error(str(error_message)):
-                gateway_data = _apply_prompt_fallback(self.kyra, messages, data)
-                if isinstance(gateway_data, dict) and gateway_data.get("error"):
-                    raise BadRequest(gateway_data.get("error"))
+            prompt_response = _apply_prompt_fallback(self.kyra, messages_with_context, data)
+            if isinstance(prompt_response, dict) and not prompt_response.get("error"):
+                gateway_data = prompt_response
             else:
+                error_message = gateway_data.get("error")
+                if _is_not_found_error(str(error_message)):
+                    return _local_fallback_response(context_docs, capabilities, last_query)
+                logger.error("[KYRA AI GATEWAY ERROR] %s", error_message)
                 raise BadRequest(error_message)
 
         assistant_text = _extract_assistant_text(gateway_data)
-        citations = _extract_citations(gateway_data)
+        if not assistant_text:
+            prompt_response = _apply_prompt_fallback(self.kyra, messages_with_context, data)
+            if isinstance(prompt_response, dict) and not prompt_response.get("error"):
+                gateway_data = prompt_response
+                assistant_text = _extract_assistant_text(gateway_data)
+
+        if not assistant_text:
+            return _local_fallback_response(context_docs, capabilities, last_query)
+
         conversation_id = _extract_conversation_id(
             gateway_data, data.get("conversation_id")
         )
 
+        gateway_citations = []
+        if isinstance(gateway_data, dict):
+            gateway_citations = gateway_data.get("citations") or []
+        context_citations = _build_citations(context_docs)
+        final_citations = list(gateway_citations)
+        existing_ids = {item.get("source_id") for item in gateway_citations if item.get("source_id")}
+        for citation in context_citations:
+            if citation.get("source_id") not in existing_ids:
+                final_citations.append(citation)
+
         return {
             "conversation_id": conversation_id,
             "message": {"role": "assistant", "content": assistant_text},
-            "citations": citations,
-            "capabilities": _capabilities_for(_resolve_context_from_payload(data)),
+            "citations": final_citations,
+            "capabilities": capabilities,
+            "used_context": _build_used_context(context_docs),
         }
 
     def _stream_response(self):
@@ -326,60 +555,117 @@ class AIChatService(ServiceBase):
         if not isinstance(data, dict):
             raise BadRequest("JSON object expected")
 
-        messages = _validate_messages(data)
-        payload = _build_gateway_payload(data, messages)
+        resolved_context = _resolve_context_from_payload(data)
+        capabilities = _capabilities_for(resolved_context)
+        payload, context_docs, last_query, messages = self._prepare_gateway_payload(data)
 
         response = self.request.response
         response.setHeader("Content-Type", "text/event-stream")
         response.setHeader("Cache-Control", "no-cache")
         response.setHeader("X-Accel-Buffering", "no")
 
-        return self._stream_events(payload, data.get("conversation_id"))
+        if not payload:
+            missing_message = _missing_page_content_message()
+            yield _sse_event("token", {"delta": missing_message})
+            yield _sse_event(
+                "done",
+                {
+                    "queue": [],
+                    "message": {
+                        "role": "assistant",
+                        "content": missing_message,
+                    },
+                    "citations": [],
+                    "capabilities": capabilities,
+                    "used_context": _build_used_context(context_docs),
+                },
+            )
+            return
+
+        logger.info(
+            "[KYRA AI CONTEXT] stream mode=%s resolved=%s text_len=%s related=%s",
+            context_docs.get("mode"),
+            context_docs.get("resolved"),
+            context_docs.get("page_text_length"),
+            len(context_docs.get("related_docs") or []),
+        )
+
+        return self._stream_events(
+            payload,
+            data.get("conversation_id"),
+            context_docs,
+            capabilities,
+            last_query,
+            messages,
+            data,
+        )
 
     def _stream_events(
-        self, payload: Dict[str, Any], fallback_conversation_id: Optional[str]
+        self,
+        payload: Dict[str, Any],
+        fallback_conversation_id: Optional[str],
+        context_docs: Dict[str, Any],
+        capabilities: Dict[str, Any],
+        last_query: str,
+        messages: List[Dict[str, Any]],
+        original_data: Dict[str, Any],
     ) -> Iterable[str]:
         response, error = self.kyra.chat.stream(payload)
         if response is not None:
-            yield from self._relay_gateway_stream(response, fallback_conversation_id)
+            yield from self._relay_gateway_stream(
+                response,
+                fallback_conversation_id,
+                _build_citations(context_docs),
+                _build_used_context(context_docs),
+                capabilities,
+            )
+            return
+
+        prompt_response = _apply_prompt_fallback(self.kyra, messages, original_data)
+        if isinstance(prompt_response, dict) and not prompt_response.get("error"):
+            yield from self._simulate_stream(
+                prompt_response,
+                fallback_conversation_id,
+                _build_citations(context_docs),
+                _build_used_context(context_docs),
+                capabilities,
+            )
             return
 
         if error and _is_not_found_error(str(error)):
-            messages = payload.get("messages") or []
-            params = payload.get("params") or {}
-            fallback_data = _apply_prompt_fallback(
-                self.kyra, messages, {"params": params}
+            fallback_response = _local_fallback_response(
+                context_docs, capabilities, last_query
             )
-            if isinstance(fallback_data, dict) and fallback_data.get("error"):
-                yield _sse_event("error", {"message": fallback_data.get("error")})
-                yield _sse_event(
-                    "done",
-                    {
-                        "capabilities": _capabilities_for(
-                            _resolve_context_from_payload(
-                                {"context": payload.get("context")}
-                            )
-                        )
-                    },
-                )
-                return
-            yield from self._simulate_stream(fallback_data, fallback_conversation_id)
+            helper_text = fallback_response["message"]["content"]
+            yield _sse_event("token", {"delta": helper_text})
+            yield _sse_event(
+                "done",
+                {
+                    "conversation_id": fallback_conversation_id,
+                    "message": fallback_response["message"],
+                    "citations": fallback_response["citations"],
+                    "capabilities": capabilities,
+                    "used_context": fallback_response.get("used_context"),
+                },
+            )
             return
 
         yield _sse_event("error", {"message": error or "Stream request failed"})
         yield _sse_event(
             "done",
             {
-                "capabilities": _capabilities_for(
-                    _resolve_context_from_payload(
-                        {"context": payload.get("context")}
-                    )
-                )
+                "capabilities": capabilities,
+                "used_context": _build_used_context(context_docs),
             },
         )
 
     def _relay_gateway_stream(
-        self, response, fallback_conversation_id: Optional[str]
+        self,
+        response,
+        fallback_conversation_id: Optional[str],
+        context_citations: List[Dict[str, Any]],
+        used_context: List[Dict[str, Any]],
+        capabilities: Dict[str, Any],
     ) -> Iterable[str]:
         content_parts: List[str] = []
         citations: List[Dict[str, Any]] = []
@@ -406,7 +692,13 @@ class AIChatService(ServiceBase):
             if event_type == "error":
                 message = payload.get("message") if isinstance(payload, dict) else payload
                 yield _sse_event("error", {"message": message})
-                yield _sse_event("done", {"capabilities": _capabilities_for(None)})
+                yield _sse_event(
+                    "done",
+                    {
+                        "capabilities": capabilities,
+                        "used_context": used_context,
+                    },
+                )
                 return
 
             if event_type == "citations":
@@ -438,8 +730,9 @@ class AIChatService(ServiceBase):
                             "role": "assistant",
                             "content": "".join(content_parts),
                         },
-                        "citations": citations,
-                        "capabilities": _capabilities_for(None),
+                        "citations": citations or context_citations,
+                        "capabilities": capabilities,
+                        "used_context": used_context,
                     },
                 )
                 return
@@ -468,13 +761,19 @@ class AIChatService(ServiceBase):
                     "role": "assistant",
                     "content": "".join(content_parts),
                 },
-                "citations": citations,
-                "capabilities": _capabilities_for(None),
+                "citations": citations or context_citations,
+                "capabilities": capabilities,
+                "used_context": used_context,
             },
         )
 
     def _simulate_stream(
-        self, gateway_data: Any, fallback_conversation_id: Optional[str]
+        self,
+        gateway_data: Any,
+        fallback_conversation_id: Optional[str],
+        context_citations: List[Dict[str, Any]],
+        used_context: List[Dict[str, Any]],
+        capabilities: Dict[str, Any],
     ) -> Iterable[str]:
         assistant_text = _extract_assistant_text(gateway_data)
         citations = _extract_citations(gateway_data)
@@ -493,7 +792,8 @@ class AIChatService(ServiceBase):
             {
                 "conversation_id": conversation_id,
                 "message": {"role": "assistant", "content": assistant_text},
-                "citations": citations,
-                "capabilities": _capabilities_for(None),
+                "citations": citations or context_citations,
+                "capabilities": capabilities,
+                "used_context": used_context,
             },
         )

@@ -9,5 +9,11 @@
       class=".translations.TranslationsView"
       permission="zope2.View"
   />
+  <browser:page
+      name="ai-chat-translations"
+      for="*"
+      class=".ai_chat_translations.AIChatTranslationsView"
+      permission="zope2.View"
+  />
 
 </configure>

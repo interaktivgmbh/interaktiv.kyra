@@ -9,7 +9,8 @@ class ServiceBase(Service):
     kyra: KyraAPI
 
     def __init__(self, context, request):
-        super().__init__(context, request)
+        self.context = context
+        self.request = request
         alsoProvides(self.request, IDisableCSRFProtection)
 
         self.kyra = KyraAPI()

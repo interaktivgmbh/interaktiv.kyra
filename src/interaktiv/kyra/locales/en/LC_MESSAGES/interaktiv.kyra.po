@@ -255,3 +255,7 @@ msgstr "AI Manual Prompt Extension is not available."
 
 msgid "trans_ai_assistant_category_uncategorized"
 msgstr "Uncategorized"
+
+# AI chat
+msgid "trans_ai_chat_language_note"
+msgstr "Kyra replies in the same language you type your prompt."
