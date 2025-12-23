@@ -92,6 +92,33 @@ class TestAIChatService(unittest.TestCase):
 
     @patch("interaktiv.kyra.services.ai_chat.json_body")
     @patch("interaktiv.kyra.services.base.KyraAPI")
+    def test_reply_unusable_gateway_answer_uses_local_fallback(self, mock_api, mock_json_body):
+        context = {
+            "page": {
+                "uid": self.sample_doc.UID(),
+                "url": self.sample_doc.absolute_url(),
+            },
+            "mode": "page",
+        }
+        mock_json_body.return_value = {
+            "messages": [{"role": "user", "content": "Summarize this page"}],
+            "context": context,
+        }
+        mock_api.return_value.chat.send.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": "Please modify the text according to the instruction and user query, maintaining proper TinyMCE HTML formatting:",
+            }
+        }
+
+        service = AIChatService(self.portal, self.request)
+        result = service.reply()
+
+        self.assertTrue(result["message"]["content"].startswith("Summary of"))
+        self.assertEqual(result["citations"][0]["source_id"], self.sample_doc.UID())
+
+    @patch("interaktiv.kyra.services.ai_chat.json_body")
+    @patch("interaktiv.kyra.services.base.KyraAPI")
     def test_reply_fallback_search_mode(self, mock_api, mock_json_body):
         context = {
             "page": {

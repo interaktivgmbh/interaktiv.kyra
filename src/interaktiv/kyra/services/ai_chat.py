@@ -392,6 +392,19 @@ def _is_invalid_uuid_error_response(response: Any) -> bool:
     return False
 
 
+def _is_unusable_gateway_answer(text: str) -> bool:
+    if not text:
+        return True
+    lowered = text.lower()
+    if "please modify the text according to the instruction" in lowered:
+        return True
+    if "tinymce" in lowered:
+        return True
+    if "maintaining proper tinymce html formatting" in lowered:
+        return True
+    return False
+
+
 def _sse_event(event: str, payload: Any) -> str:
     if isinstance(payload, str):
         data = payload
@@ -462,6 +475,7 @@ class AIChatService(ServiceBase):
         gateway_messages = [{"role": "system", "content": system_message}] + doc_messages + messages
         payload, last_user = _build_gateway_payload(data, gateway_messages)
         payload["context_documents"] = context_docs.get("documents", [])
+        payload["documents"] = context_docs.get("documents", [])
         logger.debug(
             "[KYRA AI DOCS] count=%s payload=%s",
             len(doc_messages),
@@ -525,7 +539,7 @@ class AIChatService(ServiceBase):
                 gateway_data = prompt_response
                 assistant_text = _extract_assistant_text(gateway_data)
 
-        if not assistant_text:
+        if not assistant_text or _is_unusable_gateway_answer(assistant_text):
             return _local_fallback_response(context_docs, capabilities, last_query)
 
         conversation_id = _extract_conversation_id(
