@@ -119,6 +119,60 @@ class TestAIChatService(unittest.TestCase):
 
     @patch("interaktiv.kyra.services.ai_chat.json_body")
     @patch("interaktiv.kyra.services.base.KyraAPI")
+    def test_reply_unusable_gateway_summarize_phrase(self, mock_api, mock_json_body):
+        context = {
+            "page": {
+                "uid": self.sample_doc.UID(),
+                "url": self.sample_doc.absolute_url(),
+            },
+            "mode": "summarize",
+        }
+        mock_json_body.return_value = {
+            "messages": [{"role": "user", "content": "Summarize this page"}],
+            "context": context,
+        }
+        mock_api.return_value.chat.send.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": "Please summarize the content of this page.",
+            }
+        }
+
+        service = AIChatService(self.portal, self.request)
+        result = service.reply()
+
+        self.assertTrue(result["message"]["content"].startswith("Summary of"))
+        self.assertEqual(result["citations"][0]["source_id"], self.sample_doc.UID())
+
+    @patch("interaktiv.kyra.services.ai_chat.json_body")
+    @patch("interaktiv.kyra.services.base.KyraAPI")
+    def test_reply_not_grounded_triggers_fallback(self, mock_api, mock_json_body):
+        context = {
+            "page": {
+                "uid": self.sample_doc.UID(),
+                "url": self.sample_doc.absolute_url(),
+            },
+            "mode": "page",
+        }
+        mock_json_body.return_value = {
+            "messages": [{"role": "user", "content": "Fasse den Inhalt zusammen"}],
+            "context": context,
+        }
+        mock_api.return_value.chat.send.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": "Bitte fassen Sie den Inhalt zusammen.",
+            }
+        }
+
+        service = AIChatService(self.portal, self.request)
+        result = service.reply()
+
+        self.assertTrue(result["message"]["content"].startswith("Summary of"))
+        self.assertEqual(result["citations"][0]["source_id"], self.sample_doc.UID())
+
+    @patch("interaktiv.kyra.services.ai_chat.json_body")
+    @patch("interaktiv.kyra.services.base.KyraAPI")
     def test_reply_fallback_search_mode(self, mock_api, mock_json_body):
         context = {
             "page": {
