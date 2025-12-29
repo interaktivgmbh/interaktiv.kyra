@@ -49,6 +49,24 @@ def _flatten_block_value(value: Any) -> str:
     return ""
 
 
+def _flatten_slate_children(children: Any) -> str:
+    if not isinstance(children, list):
+        return ""
+    parts: List[str] = []
+    for child in children:
+        if isinstance(child, dict):
+            text = child.get("text") or ""
+            if text:
+                parts.append(text)
+            # recurse into nested children
+            nested = _flatten_slate_children(child.get("children"))
+            if nested:
+                parts.append(nested)
+        elif isinstance(child, str):
+            parts.append(child)
+    return " ".join(parts)
+
+
 def resolve_content(context_page: Optional[Dict[str, str]]) -> Tuple[Any, str]:
     portal = api.portal.get()
     if context_page:
@@ -71,6 +89,72 @@ def resolve_content(context_page: Optional[Dict[str, str]]) -> Tuple[Any, str]:
     return portal, "portal-root"
 
 
+def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
+    quotes: List[Dict[str, str]] = []
+    for block in block_items:
+        if not isinstance(block, dict):
+            continue
+        quote_text = block.get("quote") or block.get("text") or block.get("value")
+        attribution = (
+            block.get("attribution") or block.get("source") or block.get("cite") or block.get("citation")
+        )
+        # top-level quote block
+        if isinstance(quote_text, str):
+            cleaned_quote = strip_html(quote_text)
+            if cleaned_quote:
+                quotes.append(
+                    {
+                        "quote": cleaned_quote,
+                        "attribution": strip_html(attribution) if isinstance(attribution, str) else "",
+                    }
+                )
+        # Slate quote block (common pattern)
+        slate_value = block.get("value")
+        if isinstance(slate_value, dict):
+            data = slate_value.get("data") or {}
+            if isinstance(data, dict):
+                quote = data.get("text") or data.get("quote")
+                cite = data.get("citation") or data.get("attribution") or data.get("source")
+                if isinstance(quote, str):
+                    parts.append(strip_html(quote))
+                if isinstance(cite, str):
+                    parts.append(strip_html(cite))
+                if isinstance(quote, str):
+                    cleaned_quote = strip_html(quote)
+                    if cleaned_quote:
+                        quotes.append(
+                            {
+                                "quote": cleaned_quote,
+                                "attribution": strip_html(cite) if isinstance(cite, str) else "",
+                            }
+                        )
+        # Slate richtext children
+        if "children" in block:
+            slate_text = _flatten_slate_children(block.get("children"))
+            if slate_text:
+                # Always include in page text parts
+                parts.append(strip_html(slate_text))
+                if "quote" in (block.get("@type") or "").lower():
+                    quotes.append({"quote": strip_html(slate_text), "attribution": ""})
+        # Generic quote @type with text/citation
+        btype = (block.get("@type") or "").lower()
+        if "quote" in btype:
+            for key in ("text", "quote", "value"):
+                raw = block.get(key)
+                if isinstance(raw, str):
+                    cleaned_quote = strip_html(raw)
+                    if cleaned_quote:
+                        cite = block.get("citation") or block.get("attribution") or block.get("source") or ""
+                        quotes.append(
+                            {
+                                "quote": cleaned_quote,
+                                "attribution": strip_html(cite) if isinstance(cite, str) else "",
+                            }
+                        )
+                        break
+    return quotes
+
+
 def extract_page_text(obj: Any) -> str:
     if obj is None:
         return ""
@@ -78,7 +162,7 @@ def extract_page_text(obj: Any) -> str:
 
     title = getattr(obj, "Title", None)
     if callable(title):
-            parts.append(strip_html(str(title())))
+        parts.append(strip_html(str(title())))
     elif isinstance(title, str):
         parts.append(strip_html(title))
 
@@ -88,16 +172,70 @@ def extract_page_text(obj: Any) -> str:
     elif isinstance(description, str):
         parts.append(strip_html(description))
 
+    # Include body field if present
+    body = getattr(obj, "text", None)
+    if callable(body):
+        body = body()
+    if isinstance(body, str):
+        parts.append(strip_html(body))
+    elif hasattr(body, "output"):
+        parts.append(strip_html(str(body.output)))
+
     blocks = getattr(obj, "blocks", None) or getattr(obj, "getBlocks", lambda: {})()
+    blocks_layout = getattr(obj, "blocks_layout", None) or getattr(obj, "getBlocksLayout", lambda: {})()
+    ordered_ids = []
+    if isinstance(blocks_layout, dict):
+        ordered_ids = blocks_layout.get("items") or []
+
     if isinstance(blocks, dict):
-        for block in blocks.values():
-            text = _flatten_block_value(block.get("value") if isinstance(block, dict) else block)
+        block_items = []
+        for bid in ordered_ids:
+            if bid in blocks:
+                block_items.append(blocks[bid])
+        # fallback to all values
+        if not block_items:
+            block_items = list(blocks.values())
+
+        for block in block_items:
+            if not isinstance(block, dict):
+                text = _flatten_block_value(block)
+                if text:
+                    parts.append(strip_html(text))
+                continue
+
+            # prefer "text" and "value" keys
+            if "text" in block and isinstance(block.get("text"), str):
+                parts.append(strip_html(block.get("text")))
+            if "value" in block:
+                text = _flatten_block_value(block.get("value"))
+                if text:
+                    parts.append(strip_html(text))
+            # include common quote/description fields explicitly
+            for key in ("quote", "source", "cite", "attribution", "description", "headline"):
+                if key in block and isinstance(block.get(key), str):
+                    parts.append(strip_html(block.get(key)))
+
+            # add any nested strings
+            text = _flatten_block_value(block)
             if text:
                 parts.append(strip_html(text))
 
     text = " ".join(filter(None, parts))
     text = _truncate(text, MAX_PAGE_TEXT)
-    return text
+    quotes = _collect_quotes(block_items if "block_items" in locals() else [])
+
+    # Merge unique quotes
+    seen_quotes = set()
+    final_quotes: List[Dict[str, str]] = []
+    for item in quotes:
+        q = (item.get("quote") or "").strip()
+        a = (item.get("attribution") or "").strip()
+        key = (q.lower(), a.lower())
+        if q and key not in seen_quotes:
+            seen_quotes.add(key)
+            final_quotes.append({"quote": q, "attribution": a})
+
+    return text, final_quotes
 
 
 def _call_if_callable(value: Any) -> Any:
@@ -173,7 +311,7 @@ def _build_doc_from_obj(obj: Any, doc_type: str, score: float = 0.0) -> Dict[str
     doc_id = _call_if_callable(getattr(obj, "UID", None)) or _call_if_callable(getattr(obj, "id", ""))
     doc_url = _call_if_callable(getattr(obj, "absolute_url", lambda: "")())
     doc_title = _call_if_callable(getattr(obj, "Title", lambda: "")) or doc_url
-    doc_text = extract_page_text(obj)
+    doc_text, _ = extract_page_text(obj)
 
     return _build_doc(
         doc_id=doc_id or doc_url,
@@ -225,7 +363,7 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
     selection_text = (context or {}).get("selection_text") or ""
 
     obj, resolved = resolve_content(page_info)
-    raw_page_text = extract_page_text(obj)
+    raw_page_text, page_quotes = extract_page_text(obj)
     page_text = clean_text(raw_page_text)
     page_id = page_info.get("uid")
     if not page_id:
@@ -267,4 +405,5 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
         "page_doc": page_doc,
         "related_docs": related_docs,
         "site_docs": site_docs,
+        "quotes": page_quotes,
     }

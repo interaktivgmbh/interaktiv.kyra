@@ -173,6 +173,64 @@ class TestAIChatService(unittest.TestCase):
 
     @patch("interaktiv.kyra.services.ai_chat.json_body")
     @patch("interaktiv.kyra.services.base.KyraAPI")
+    def test_reply_content_intent_forces_grounding(self, mock_api, mock_json_body):
+        context = {
+            "page": {
+                "uid": self.sample_doc.UID(),
+                "url": self.sample_doc.absolute_url(),
+            },
+            "mode": "page",
+        }
+        mock_json_body.return_value = {
+            "messages": [{"role": "user", "content": "Which quote is from Steve Jobs?"}],
+            "context": context,
+        }
+        mock_api.return_value.chat.send.return_value = {
+            "message": {"role": "assistant", "content": "Some offsite answer"},
+        }
+
+        service = AIChatService(self.portal, self.request)
+        result = service.reply()
+
+        self.assertTrue(result["message"]["content"].startswith("Summary of"))
+        self.assertEqual(result["citations"][0]["source_id"], self.sample_doc.UID())
+
+    @patch("interaktiv.kyra.services.ai_chat.json_body")
+    @patch("interaktiv.kyra.services.base.KyraAPI")
+    def test_quote_lookup_shortcuts(self, mock_api, mock_json_body):
+        context = {
+            "page": {
+                "uid": self.sample_doc.UID(),
+                "url": self.sample_doc.absolute_url(),
+            },
+            "mode": "page",
+        }
+        mock_json_body.return_value = {
+            "messages": [{"role": "user", "content": "Who said Stay hungry?"}],
+            "context": context,
+        }
+        mock_api.return_value.chat.send.return_value = {
+            "message": {"role": "assistant", "content": "Some offsite answer"},
+        }
+
+        service = AIChatService(self.portal, self.request)
+        # inject a quote into context_docs (simulate extractor)
+        service_context = ai_context.build_context_documents(context)
+        service_context["quotes"] = [{"quote": "Stay Hungry", "attribution": "Steve Jobs"}]
+        service._prepare_gateway_payload = lambda data: (
+            {"messages": [{"role": "user", "content": "Who said Stay hungry?"}]},
+            service_context,
+            "Who said Stay hungry?",
+            [{"role": "user", "content": "Who said Stay hungry?"}],
+        )
+
+        result = service.reply()
+
+        self.assertIn("stay hungry", result["message"]["content"].lower())
+        self.assertTrue(result["citations"])
+
+    @patch("interaktiv.kyra.services.ai_chat.json_body")
+    @patch("interaktiv.kyra.services.base.KyraAPI")
     def test_reply_fallback_search_mode(self, mock_api, mock_json_body):
         context = {
             "page": {

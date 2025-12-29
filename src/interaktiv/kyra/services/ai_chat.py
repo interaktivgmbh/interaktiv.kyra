@@ -217,7 +217,7 @@ def _apply_prompt_fallback(
 
 
 MAX_DOC_MESSAGE_TEXT = 1200
-CITATION_SNIPPET_LIMIT = 200
+CITATION_SNIPPET_LIMIT = 140
 
 
 def _is_not_found_error(message: str) -> bool:
@@ -316,17 +316,27 @@ def _missing_page_content_message() -> str:
     )
 
 
-def _summarize_text(text: str, max_sentences: int = 3) -> str:
+def _summarize_text(text: str, max_sentences: int = 6, max_chars: int = 800) -> str:
     cleaned = clean_text(text)
     if not cleaned:
         return ""
     separators = re.compile(r"(?<=[.!?])\s+")
     sentences = [sentence.strip() for sentence in separators.split(cleaned) if sentence.strip()]
+    # If text is very long, prefer a clean snippet with ellipsis
+    if len(cleaned) > max_chars:
+        snippet = cleaned[:max_chars]
+        snippet = snippet.rsplit(" ", 1)[0]
+        return snippet + "…"
+
     selected = sentences[:max_sentences] or sentences
     if not selected:
-        return cleaned[:MAX_DOC_MESSAGE_TEXT]
-    bullets = "\n".join(f"- {sentence}" for sentence in selected)
-    return bullets
+        return cleaned
+
+    # If only one long sentence, return it without bullets
+    if len(selected) == 1:
+        return selected[0]
+
+    return "\n".join(f"- {sentence}" for sentence in selected)
 
 
 def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> str:
@@ -361,7 +371,10 @@ def _format_citation_snippet(doc: Dict[str, Any]) -> str:
     snippet = clean_text(doc.get("text") or "")
     if not snippet:
         snippet = clean_text(doc.get("title") or doc.get("url") or "")
-    return snippet[:CITATION_SNIPPET_LIMIT].strip()
+    snippet = snippet.strip()
+    if len(snippet) > CITATION_SNIPPET_LIMIT:
+        snippet = snippet[:CITATION_SNIPPET_LIMIT].rsplit(" ", 1)[0] + "…"
+    return snippet
 
 
 def _local_fallback_response(
@@ -452,7 +465,7 @@ def _is_unusable_gateway_answer(text: str) -> bool:
 
 
 def _is_grounded_answer(text: str, context_docs: Dict[str, Any]) -> bool:
-    """Heuristic: answer should reference the current page title/URL."""
+    """Heuristic: answer should reference the current page title/URL or page text."""
     if not text:
         return False
     page_doc = context_docs.get("page_doc") or {}
@@ -463,6 +476,19 @@ def _is_grounded_answer(text: str, context_docs: Dict[str, Any]) -> bool:
         return True
     if url and url.lower() in lowered:
         return True
+
+    page_text = (page_doc.get("text") or "").lower()
+    if page_text:
+        # Token overlap heuristic
+        import re
+
+        answer_tokens = {t for t in re.split(r"[^a-z0-9äöüß]+", lowered) if len(t) >= 4}
+        page_tokens = {
+            t for t in re.split(r"[^a-z0-9äöüß]+", page_text[:800]) if len(t) >= 4
+        }
+        if answer_tokens and page_tokens:
+            if len(answer_tokens.intersection(page_tokens)) >= 3:
+                return True
     return False
 
 
@@ -501,6 +527,23 @@ SMALLTALK_KEYWORDS = (
     "gruss",
 )
 
+OFFSITE_KEYWORDS = (
+    "wetter",
+    "weather",
+    "forecast",
+    "temperature",
+    "temperatur",
+    "new york",
+    "paris",
+    "london",
+    "berlin",
+    "time",
+    "uhrzeit",
+    "stock",
+    "aktien",
+    "news",
+)
+
 
 def _detect_summary_intent(text: str) -> bool:
     lowered = (text or "").lower()
@@ -531,6 +574,150 @@ def _detect_smalltalk_intent(text: str) -> bool:
     return any(keyword in lowered for keyword in SMALLTALK_KEYWORDS)
 
 
+def _detect_offsite_intent(text: str) -> bool:
+    lowered = (text or "").lower()
+    if not lowered:
+        return False
+    return any(keyword in lowered for keyword in OFFSITE_KEYWORDS)
+
+
+CONTENT_KEYWORDS = (
+    "auf der seite",
+    "auf dieser seite",
+    "inhalt",
+    "content",
+    "quote",
+    "zitat",
+    "stay hungry",
+    "stay foolish",
+    "steve jobs",
+    "wer hat",
+    "who said",
+    "welches zitat",
+    "welches quote",
+)
+
+
+def _detect_content_intent(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(keyword in lowered for keyword in CONTENT_KEYWORDS)
+
+
+def _answer_from_quotes(context_docs: Dict[str, Any], query: str) -> Optional[Dict[str, Any]]:
+    quotes = context_docs.get("quotes") or []
+    if not quotes:
+        return None
+
+    import re
+
+    query_tokens = {t for t in re.split(r"[^a-z0-9äöüß]+", (query or "").lower()) if len(t) >= 3}
+    if not query_tokens:
+        query_tokens = set()
+
+    best: Optional[Dict[str, str]] = None
+    best_score = 0
+    for item in quotes:
+        quote_text = (item.get("quote") or "").lower()
+        attribution = (item.get("attribution") or "").lower()
+        tokens = set()
+        tokens.update(re.split(r"[^a-z0-9äöüß]+", quote_text))
+        tokens.update(re.split(r"[^a-z0-9äöüß]+", attribution))
+        tokens = {t for t in tokens if len(t) >= 3}
+        overlap = len(tokens.intersection(query_tokens)) if query_tokens else 0
+        score = overlap
+        if not query_tokens and quote_text:
+            score = len(quote_text)
+        if score > best_score:
+            best_score = score
+            best = item
+
+    if not best:
+        return None
+
+    if not best:
+        return None
+
+    page_doc = context_docs.get("page_doc") or {}
+    citations = []
+    if page_doc:
+        citations.append(
+            {
+                "source_id": page_doc.get("id"),
+                "label": page_doc.get("title") or page_doc.get("url"),
+                "url": page_doc.get("url") or "",
+                "snippet": _format_citation_snippet(page_doc),
+            }
+        )
+
+    content = best.get("quote")
+    if best.get("attribution"):
+        content = f'{best.get("quote")} — {best.get("attribution")}'
+
+    return {
+        "message": {"role": "assistant", "content": content},
+        "citations": citations,
+        "capabilities": {},
+    }
+
+
+def _answer_from_page_text(context_docs: Dict[str, Any], query: str) -> Optional[Dict[str, Any]]:
+    page_doc = context_docs.get("page_doc") or {}
+    text = (page_doc.get("text") or "").strip()
+    if not text:
+        return None
+    lowered_query = (query or "").lower()
+    lowered_text = text.lower()
+
+    def _sentence_with(token: str) -> Optional[str]:
+        import re
+
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        for sentence in sentences:
+            if token.lower() in sentence.lower():
+                return sentence.strip()
+        return None
+
+    def _phrase_snippet(phrase: str) -> Optional[str]:
+        lowered_text = text.lower()
+        lowered_phrase = phrase.lower()
+        if lowered_phrase not in lowered_text:
+            return None
+        idx = lowered_text.index(lowered_phrase)
+        start = max(0, idx - 80)
+        end = min(len(text), idx + len(phrase) + 80)
+        snippet = text[start:end].strip()
+        return snippet or None
+
+    content = None
+    # try to find any meaningful token from the query inside the page text
+    tokens = [t for t in re.split(r"[^a-z0-9äöüß]+", lowered_query) if len(t) >= 3]
+    for token in tokens:
+        if token and token in lowered_text:
+            content = _phrase_snippet(token) or _sentence_with(token)
+            if content:
+                break
+
+    if not content:
+        return None
+
+    citations = []
+    if page_doc:
+        citations.append(
+            {
+                "source_id": page_doc.get("id"),
+                "label": page_doc.get("title") or page_doc.get("url"),
+                "url": page_doc.get("url") or "",
+                "snippet": _format_citation_snippet(page_doc),
+            }
+        )
+
+    return {
+        "message": {"role": "assistant", "content": content},
+        "citations": citations,
+        "capabilities": {},
+    }
+
+
 def _detect_site_title_intent(text: str) -> bool:
     lowered = (text or "").lower()
     return any(keyword in lowered for keyword in SITE_TITLE_KEYWORDS)
@@ -549,7 +736,9 @@ def _needs_grounded_response(last_query: str, mode: str, context_docs: Dict[str,
     if mode == "page":
         if _detect_smalltalk_intent(last_query):
             return False
-        return True
+        if _detect_content_intent(last_query):
+            return True
+        return False
     return False
 
 
@@ -661,6 +850,23 @@ class AIChatService(ServiceBase):
         capabilities = _capabilities_for(resolved_context)
         payload, context_docs, last_query, messages = self._prepare_gateway_payload(data)
         last_query = last_query or ""
+
+        # Quick local answers from quotes for content intent
+        if _detect_content_intent(last_query):
+            quote_answer = _answer_from_quotes(context_docs, last_query)
+            if quote_answer:
+                quote_answer["capabilities"] = capabilities
+                quote_answer["used_context"] = _build_used_context(context_docs)
+                return quote_answer
+            text_answer = _answer_from_page_text(context_docs, last_query)
+            if text_answer:
+                text_answer["capabilities"] = capabilities
+                text_answer["used_context"] = _build_used_context(context_docs)
+                return text_answer
+
+        # Block obvious off-site queries early
+        if _detect_offsite_intent(last_query):
+            return _site_only_response(context_docs, capabilities, last_query)
 
         # Quick intent handlers (no external call)
         if _detect_site_title_intent(last_query):
