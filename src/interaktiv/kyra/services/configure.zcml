@@ -102,6 +102,14 @@
     />
 
     <plone:service
+        method="POST"
+        name="@ai-chat-upload"
+        factory=".ai_chat_upload.AIChatUpload"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
         method="GET"
         name="@ai-capabilities"
         factory=".ai_capabilities.AICapabilities"

@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from interaktiv.kyra.services.base import ServiceBase
 from interaktiv.kyra import logger
 from interaktiv.kyra.services.ai_context import build_context_documents, clean_text
+from interaktiv.kyra.services.ai_chat_upload import _get_uploads_store
 from plone import api
 from plone.restapi.deserializer import json_body
 from zExceptions import BadRequest
@@ -231,7 +232,7 @@ def _build_system_message(context_docs: Dict[str, Any]) -> str:
     lines = [
         "You are Kyra AI, the helpful assistant for this Plone site.",
         f"Mode: {mode}",
-        "Use ONLY the provided context documents to answer.",
+        "Use ONLY the provided context documents to answer, including any uploaded files.",
         "Cite your sources (title and URL) and do not invent information.",
         "If the answer cannot be found in those documents, say you cannot find it on this website and ask what to search for next.",
         "Context documents:",
@@ -246,31 +247,23 @@ def _build_system_message(context_docs: Dict[str, Any]) -> str:
 
 def _format_context_doc_message(doc: Dict[str, Any]) -> Dict[str, str]:
     content = f"Document: {doc.get('title')} ({doc.get('url')})\n\n{doc.get('text') or ''}"
-    truncated = content[:MAX_DOC_MESSAGE_TEXT]
-    return {"role": "tool", "content": truncated}
+    if len(content) > MAX_DOC_MESSAGE_TEXT:
+        content = content[:MAX_DOC_MESSAGE_TEXT].rsplit(" ", 1)[0] + "…"
+    return {"role": "tool", "content": content}
 
 
 def _build_citations(context_docs: Dict[str, Any]) -> List[Dict[str, Any]]:
-    mode = context_docs.get("mode") or "page"
-    if mode not in ("summarize", "related", "search"):
-        return []
     page_doc = context_docs.get("page_doc") or {}
     site_docs = context_docs.get("site_docs") or []
     related_docs = context_docs.get("related_docs") or []
+    upload_docs = context_docs.get("upload_docs") or []
     citation_candidates: List[Dict[str, Any]] = []
 
-    if mode in ("page", "summarize"):
-        if page_doc:
-            citation_candidates = [page_doc]
-    elif mode in ("related", "search"):
-        citation_candidates = list(related_docs) if related_docs else []
-        if not citation_candidates and page_doc:
-            citation_candidates.append(page_doc)
-    else:
-        if page_doc:
-            citation_candidates.append(page_doc)
-        citation_candidates.extend(related_docs or [])
-        citation_candidates.extend(site_docs or [])
+    if page_doc:
+        citation_candidates.append(page_doc)
+    citation_candidates.extend(upload_docs)
+    citation_candidates.extend(related_docs or [])
+    citation_candidates.extend(site_docs or [])
 
     citations: List[Dict[str, Any]] = []
     seen = set()
@@ -347,8 +340,17 @@ def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> st
     summary_text = _summarize_text(page_doc.get("text") or "")
     cleaned_query = clean_text(last_query or "")
 
+    upload_docs = context_docs.get("upload_docs") or []
+
     if not summary_text:
         return _missing_page_content_message()
+
+    if _detect_upload_intent(last_query) and upload_docs:
+        lines = ["Uploaded files summary:"]
+        for doc in upload_docs[:2]:
+            snippet = _format_citation_snippet(doc)
+            lines.append(f"- {doc.get('title')}: {snippet}")
+        return "\n".join(lines)
 
     if mode == "summarize":
         return f"Summary of {title}:\n{summary_text}"
@@ -597,10 +599,24 @@ CONTENT_KEYWORDS = (
     "welches quote",
 )
 
+UPLOAD_KEYWORDS = (
+    "attachment",
+    "anhang",
+    "upload",
+    "hochgeladen",
+    "datei",
+    "file",
+)
+
 
 def _detect_content_intent(text: str) -> bool:
     lowered = (text or "").lower()
     return any(keyword in lowered for keyword in CONTENT_KEYWORDS)
+
+
+def _detect_upload_intent(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(keyword in lowered for keyword in UPLOAD_KEYWORDS)
 
 
 def _answer_from_quotes(context_docs: Dict[str, Any], query: str) -> Optional[Dict[str, Any]]:
@@ -813,6 +829,28 @@ class AIChatService(ServiceBase):
             context_payload["mode"] = "summarize"
             context_mode = "summarize"
 
+        # resolve uploads with stored extracted text
+        uploads_raw = context_payload.get("uploads") or []
+        resolved_uploads = []
+        if isinstance(uploads_raw, list):
+            store = _get_uploads_store()
+            for item in uploads_raw:
+                if not isinstance(item, dict):
+                    continue
+                file_id = item.get("file_id") or item.get("id")
+                if not file_id:
+                    continue
+                store_item = store.get(file_id) if isinstance(store, dict) else None
+                resolved_uploads.append(
+                    {
+                        "file_id": file_id,
+                        "name": item.get("name") or (store_item or {}).get("filename"),
+                        "text": (store_item or {}).get("extracted_text") or item.get("text"),
+                    }
+                )
+        if resolved_uploads:
+            context_payload["uploads"] = resolved_uploads
+
         context_docs = build_context_documents(context_payload)
         context_docs["mode"] = context_mode
         page_text = context_docs.get("page_doc", {}).get("text", "")
@@ -820,9 +858,11 @@ class AIChatService(ServiceBase):
             return None, context_docs, "", messages
 
         system_message = _build_system_message(context_docs)
+        documents = context_docs.get("documents") or []
         doc_messages = [
             _format_context_doc_message(doc)
-            for doc in (context_docs.get("documents") or [])[:3]
+            for doc in documents[:5]
+            if doc.get("text")
         ]
         gateway_messages = [{"role": "system", "content": system_message}] + doc_messages + messages
         payload, last_user = _build_gateway_payload(data, gateway_messages)
@@ -863,6 +903,18 @@ class AIChatService(ServiceBase):
                 text_answer["capabilities"] = capabilities
                 text_answer["used_context"] = _build_used_context(context_docs)
                 return text_answer
+        if _detect_upload_intent(last_query) and context_docs.get("upload_docs"):
+            upload_docs = context_docs.get("upload_docs") or []
+            lines = ["Uploaded files:"]
+            for doc in upload_docs[:3]:
+                snippet = _format_citation_snippet(doc)
+                lines.append(f"- {doc.get('title')}: {snippet}")
+            return {
+                "message": {"role": "assistant", "content": "\n".join(lines)},
+                "citations": _build_citations(context_docs),
+                "capabilities": capabilities,
+                "used_context": _build_used_context(context_docs),
+            }
 
         # Block obvious off-site queries early
         if _detect_offsite_intent(last_query):

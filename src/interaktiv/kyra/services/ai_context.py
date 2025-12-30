@@ -361,6 +361,7 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
     page_info = (context or {}).get("page") or {}
     query = (context or {}).get("query") or ""
     selection_text = (context or {}).get("selection_text") or ""
+    uploads = (context or {}).get("uploads") or []
 
     obj, resolved = resolve_content(page_info)
     raw_page_text, page_quotes = extract_page_text(obj)
@@ -392,8 +393,29 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
             doc_type=mode,
         )
 
+    upload_docs: List[Dict[str, Any]] = []
+    if isinstance(uploads, list):
+        for item in uploads:
+            if not isinstance(item, dict):
+                continue
+            uid = item.get("file_id") or item.get("id")
+            text = clean_text(item.get("text") or "")
+            title = item.get("name") or item.get("filename") or "Upload"
+            if uid:
+                upload_docs.append(
+                    _build_doc(
+                        doc_id=uid,
+                        title=title,
+                        url="",
+                        text=text,
+                        doc_type="upload",
+                        score=0.6,
+                    )
+                )
+
     site_docs = collect_site_documents(page_doc)
-    documents = [page_doc] + site_docs + related_docs
+    # Prioritize uploads right after the page so they land in the first context docs
+    documents = [page_doc] + upload_docs + site_docs + related_docs
 
     return {
         "mode": mode,
@@ -405,5 +427,6 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
         "page_doc": page_doc,
         "related_docs": related_docs,
         "site_docs": site_docs,
+        "upload_docs": upload_docs,
         "quotes": page_quotes,
     }

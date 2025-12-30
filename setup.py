@@ -10,6 +10,11 @@ VERSION = '1.0.0'
 REQUIRED = [
     'setuptools',
     'Plone>=6.1',
+    'PyPDF2',
+    'pytesseract',
+    'Pillow',
+    'pdf2image',
+    'striprtf',
 ]
 EXTRAS = {
     'test': ['plone.app.testing']
