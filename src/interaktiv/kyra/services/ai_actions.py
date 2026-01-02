@@ -27,6 +27,7 @@ ALLOWLIST = {
     "insert_list_block",
     "insert_quote_block",
     "insert_image_block",
+    "insert_block",
 }
 
 PLAN_PROMPT_ID = "kyra-actions-plan"
@@ -91,6 +92,7 @@ def _build_plan_prompt_payload() -> Dict[str, Any]:
             "- insert_list_block (payload: {\"items\": [\"...\"], \"ordered\": false})\n"
             "- insert_quote_block (payload: {\"text\": \"...\", \"citation\": \"...\"})\n"
             "- insert_image_block (payload: {\"url\": \"...\" OR \"uid\": \"...\", \"alt\": \"...\", \"scale\": \"large\"})\n\n"
+            "- insert_block (payload: {\"block\": {\"@type\": \"...\", ...}})  # for advanced blocks like video, listing, teaser, map, grid\n\n"
             "If the request asks to improve the description but no new text is given,\n"
             "rewrite the current description into a clearer, shorter version. If the\n"
             "current description is empty, draft a concise one-sentence description.\n"
@@ -179,7 +181,9 @@ def _canonical_action_type(action_type: str) -> str:
         "add_text_block": "insert_text_block",
         "append_text_block": "insert_text_block",
         "insert_block": "insert_text_block",
-        "add_block": "insert_text_block",
+        # generic block insertion
+        "add_block": "insert_block",
+        "insert_generic_block": "insert_block",
         "add_heading_block": "insert_heading_block",
         "insert_heading": "insert_heading_block",
         "add_heading": "insert_heading_block",
@@ -427,6 +431,12 @@ def _normalize_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if isinstance(caption, str) and caption.strip():
                 normalized["caption"] = caption.strip()
             return {"type": "insert_image_block", "payload": normalized}
+    elif action_type == "insert_block":
+        block = payload.get("block") if isinstance(payload, dict) else None
+        if block is None and isinstance(payload, dict):
+            block = payload
+        if isinstance(block, dict) and isinstance(block.get("@type"), str) and block.get("@type").strip():
+            return {"type": "insert_block", "payload": {"block": block}}
     return None
 
 
@@ -646,6 +656,53 @@ def _derive_actions_from_patterns(goal: str) -> List[Dict[str, Any]]:
                 }
             )
 
+    # Simple video block if a video URL is present
+    video_url_match = re.search(r"https?://\S+", text)
+    if video_url_match and re.search(r"\bvideo\b", text, re.IGNORECASE):
+        actions.append(
+            {
+                "type": "insert_block",
+                "payload": {"block": {"@type": "video", "url": video_url_match.group(0)}},
+            }
+        )
+
+    # Simple map block
+    if re.search(r"\bmap\b|\bkart", text, re.IGNORECASE):
+        actions.append({"type": "insert_block", "payload": {"block": {"@type": "maps"}}})
+
+    # Simple listing block
+    if re.search(r"\blisting\b", text, re.IGNORECASE):
+        variation = "default"
+        if re.search(r"image", text, re.IGNORECASE):
+            variation = "listingImage"
+        actions.append(
+            {
+                "type": "insert_block",
+                "payload": {"block": {"@type": "listing", "variation": variation}},
+            }
+        )
+
+    # Teaser block
+    if re.search(r"\bteaser\b", text, re.IGNORECASE):
+        actions.append({"type": "insert_block", "payload": {"block": {"@type": "teaser"}}})
+
+    # Grid block (default Volto grid block id: gridBlock)
+    grid_match = re.search(r"\bgrid\b", text, re.IGNORECASE)
+    if grid_match:
+        columns = 3
+        col_match = re.search(r"(\d+)\s*column", text, re.IGNORECASE)
+        if col_match:
+            try:
+                columns = max(1, min(4, int(col_match.group(1))))
+            except Exception:
+                columns = 3
+        actions.append(
+            {
+                "type": "insert_block",
+                "payload": {"block": _build_grid_block(columns)},
+            }
+        )
+
     return actions
 
 
@@ -813,6 +870,14 @@ def _apply_actions(obj, actions: List[Dict[str, Any]]) -> List[str]:
                 scale=scale,
             )
             changed.append("blocks")
+        elif action_type == "insert_block":
+            block = payload.get("block") if isinstance(payload, dict) else None
+            if not isinstance(block, dict):
+                raise BadRequest("insert_block requires block payload")
+            if not isinstance(block.get("@type"), str) or not block.get("@type").strip():
+                raise BadRequest("insert_block block requires @type")
+            _insert_block(obj, block)
+            changed.append("blocks")
 
     obj.reindexObject()
     return changed
@@ -940,6 +1005,18 @@ def _build_image_block(
     if isinstance(caption, str) and caption.strip():
         block["caption"] = caption.strip()
     return block
+
+
+def _build_grid_block(columns: int) -> Dict[str, Any]:
+    cols = max(1, min(4, int(columns) if isinstance(columns, int) else 3))
+    ids = [str(uuid.uuid4()) for _ in range(cols)]
+    blocks = {bid: {"@type": "empty"} for bid in ids}
+    return {
+        "@type": "gridBlock",
+        "columns": cols,
+        "blocks": blocks,
+        "blocks_layout": {"items": ids},
+    }
 
 
 def _insert_block(obj, block: Dict[str, Any]) -> None:
