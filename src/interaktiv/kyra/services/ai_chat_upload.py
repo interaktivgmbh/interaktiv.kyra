@@ -4,7 +4,12 @@ import uuid
 from typing import Any, Dict, Optional
 import mimetypes
 import re
+import os
+import shutil
+import subprocess
+import tempfile
 
+from interaktiv.kyra import logger
 from interaktiv.kyra.services.base import ServiceBase
 from plone import api
 from plone.protect.interfaces import IDisableCSRFProtection
@@ -13,13 +18,36 @@ from zope.annotation.interfaces import IAnnotations
 from zope.interface import alsoProvides
 from zExceptions import BadRequest
 import json
-import logging
-
-logger = logging.getLogger(__name__)
-
 
 ANNOTATION_KEY = "interaktiv.kyra.ai_uploads"
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def _normalize_extracted_text(value: str) -> str:
+    """Normalize common OCR artifacts and bullet markers."""
+    if not isinstance(value, str):
+        return ""
+    # Keep ß/umlauts intact; only remove obvious artifacts
+    replacements = {
+        "•": "-",
+        "·": "-",
+        "●": "-",
+        "▪": "-",
+        "◦": "-",
+        "–": "-",
+        "—": "-",
+        "‑": "-",
+        "©": "",
+        "®": "",
+        "™": "",
+    }
+    for src, dst in replacements.items():
+        value = value.replace(src, dst)
+    # Collapse bullet-like markers to "- "
+    value = re.sub(r"[•·●▪◦*]\s*", "- ", value)
+    # Remove stray double spaces
+    value = re.sub(r"\s{2,}", " ", value)
+    return value
 
 
 def _get_uploads_store() -> Dict[str, Any]:
@@ -35,12 +63,14 @@ def _get_uploads_store() -> Dict[str, Any]:
 def _clean_text(value: str, limit: int = 8000) -> str:
     if not isinstance(value, str):
         return ""
-    return " ".join(value.split())[:limit]
+    normalized = _normalize_extracted_text(value)
+    return " ".join(normalized.split())[:limit]
 
 
 def _clean_text_preserve_newlines(value: str, limit: int = 8000) -> str:
     if not isinstance(value, str):
         return ""
+    value = _normalize_extracted_text(value)
     lines = []
     for line in value.splitlines():
         # replace escaped backslashes with space
@@ -105,8 +135,22 @@ def _strip_rtf_header(cleaned: str) -> str:
     return merged.strip()
 
 
+def _set_tesseract_path():
+    """Ensure pytesseract uses a valid binary."""
+    try:
+        import pytesseract  # type: ignore
+
+        if getattr(pytesseract.pytesseract, "tesseract_cmd", None):
+            return
+        candidate = os.environ.get("TESSERACT_PATH") or "/opt/homebrew/bin/tesseract"
+        if os.path.exists(candidate):
+            pytesseract.pytesseract.tesseract_cmd = candidate
+    except Exception:
+        return
+
+
 def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: Optional[str] = None) -> str:
-    """Best-effort text extraction: plain text and PDFs; images are skipped unless OCR is available."""
+    """Best-effort text extraction: plain text, RTF, PDFs, and images (OCR)."""
     ctype = (content_type or "").lower()
     if not ctype and filename:
         guess, _enc = mimetypes.guess_type(filename)
@@ -115,32 +159,32 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
 
     # RTF extraction
     if filename and filename.lower().endswith(".rtf"):
-        # Try striprtf first
+        # Prefer striprtf to preserve headings and blank lines
         try:
             from striprtf.striprtf import rtf_to_text  # type: ignore
 
             raw = data.decode("utf-8", errors="ignore")
             text = rtf_to_text(raw)
-            return _clean_text_preserve_newlines(text)
+            cleaned = _clean_text_preserve_newlines(text)
+            if cleaned:
+                return cleaned
         except Exception:
             pass
+
+        # Manual fallback: light cleanup without aggressive header stripping
         try:
             raw = data.decode("utf-8", errors="ignore")
-            # convert paragraph/line markers to newlines early
             raw = raw.replace("\\par", "\n").replace("\\line", "\n")
-            # remove groups like {\*\...}
             text = re.sub(r"{\\\*[^}]+}", " ", raw)
-            # remove control words and hex escapes
             text = re.sub(r"\\'[0-9a-fA-F]{2}", " ", text)
             text = re.sub(r"\\[a-zA-Z]+-?\\d*", " ", text)
-            # strip remaining braces
             text = re.sub(r"[{}]", " ", text)
             cleaned = _clean_text_preserve_newlines(text)
-            cleaned = _strip_rtf_header(cleaned)
-            return cleaned
+            if cleaned:
+                return cleaned
         except Exception as exc:
             logger.debug("RTF extraction failed: %s", exc)
-            return ""
+        return ""
 
     # Plain text
     if ctype.startswith("text/"):
@@ -149,9 +193,42 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         except Exception:
             return ""
 
-    # PDF extraction via PyPDF2 if available
+        # PDF extraction: try pdfminer, PyPDF2, then OCR
     if "pdf" in ctype:
         extracted = ""
+        # pdftotext (command line) early fallback if available
+        try:
+            pdftotext_bin = shutil.which("pdftotext") or "/opt/homebrew/bin/pdftotext"
+            if pdftotext_bin and os.path.exists(pdftotext_bin):
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp_pdf:
+                    tmp_pdf.write(data)
+                    tmp_pdf.flush()
+                    result = subprocess.run(
+                        [pdftotext_bin, "-layout", "-l", "1", tmp_pdf.name, "-"],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    text = result.stdout or result.stderr
+                    text = _clean_text(text)
+                    if text:
+                        logger.info("PDF text extracted via pdftotext (%s chars): %.200s", len(text), text)
+                        return text
+        except Exception as exc:
+            logger.debug("PDF pdftotext extraction failed: %s", exc)
+        # pdfminer first
+        try:
+            from pdfminer.high_level import extract_text  # type: ignore
+
+            text = extract_text(io.BytesIO(data))
+            extracted = _clean_text(text)
+            if extracted:
+                logger.info("PDF text extracted via pdfminer (%s chars): %.200s", len(extracted), extracted)
+                return extracted
+        except Exception as exc:
+            logger.debug("PDF pdfminer extraction failed: %s", exc)
+
+        # PyPDF2 fallback
         try:
             import PyPDF2  # type: ignore
 
@@ -165,38 +242,138 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
                 except Exception:
                     continue
             extracted = _clean_text(" ".join(pages))
+            if extracted:
+                logger.info("PDF text extracted via PyPDF2 (%s chars): %.200s", len(extracted), extracted)
+                return extracted
         except Exception as exc:
             logger.debug("PDF text extraction failed: %s", exc)
-            extracted = ""
 
-        if extracted:
-            return extracted
-
-        # Fallback OCR on first page if poppler/pdf2image+pytesseract are available
+        # OCR fallback
         try:
+            _set_tesseract_path()
             import pytesseract  # type: ignore
             from pdf2image import convert_from_bytes  # type: ignore
+            ocr_lang = os.environ.get("TESSERACT_LANG", "deu+eng")
 
-            images = convert_from_bytes(data, first_page=1, last_page=1)
+            poppler_path = os.environ.get("POPPLER_PATH") or "/opt/homebrew/opt/poppler/bin"
+            kwargs = {"first_page": 1, "last_page": 1}
+            if poppler_path:
+                kwargs["poppler_path"] = poppler_path
+            images = convert_from_bytes(data, **kwargs)
             if images:
-                text = pytesseract.image_to_string(images[0])
-                return _clean_text(text)
+                text = pytesseract.image_to_string(images[0], lang=ocr_lang)
+                extracted = _clean_text(text)
+                if extracted:
+                    logger.info("PDF OCR extracted (%s chars): %.200s", len(extracted), extracted)
+                    return extracted
         except Exception as exc:
             logger.debug("PDF OCR failed: %s", exc)
-            return ""
+
+        # CLI OCR fallback: pdftoppm + tesseract
+        try:
+            pdftoppm_bin = (
+                shutil.which("pdftoppm")
+                or "/opt/homebrew/bin/pdftoppm"
+                or "/opt/homebrew/opt/poppler/bin/pdftoppm"
+            )
+            tesseract_bin = os.environ.get("TESSERACT_PATH") or shutil.which("tesseract") or "/opt/homebrew/bin/tesseract"
+            ocr_lang = os.environ.get("TESSERACT_LANG", "deu+eng")
+            if pdftoppm_bin and os.path.exists(pdftoppm_bin) and tesseract_bin and os.path.exists(tesseract_bin):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    pdf_path = os.path.join(tmpdir, "input.pdf")
+                    out_prefix = os.path.join(tmpdir, "page")
+                    with open(pdf_path, "wb") as fh:
+                        fh.write(data)
+                    subprocess.run(
+                        [pdftoppm_bin, "-f", "1", "-l", "1", "-singlefile", "-png", pdf_path, out_prefix],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    img_path = f"{out_prefix}.png"
+                    if os.path.exists(img_path):
+                        # Prefer python OCR if available, else CLI tesseract
+                        try:
+                            _set_tesseract_path()
+                            import pytesseract  # type: ignore
+                            from PIL import Image  # type: ignore
+
+                            with open(img_path, "rb") as fh:
+                                img_data = fh.read()
+                            img = Image.open(io.BytesIO(img_data))
+                            text = pytesseract.image_to_string(img, lang=ocr_lang)
+                            cleaned = _clean_text(text)
+                            if cleaned:
+                                logger.info("PDF OCR via pdftoppm + pytesseract (%s chars): %.200s", len(cleaned), cleaned)
+                                return cleaned
+                        except Exception:
+                            pass
+                        try:
+                            result = subprocess.run(
+                                [tesseract_bin, img_path, os.path.join(tmpdir, "out"), "-l", ocr_lang],
+                                check=False,
+                                capture_output=True,
+                                text=True,
+                            )
+                            out_txt = os.path.join(tmpdir, "out.txt")
+                            if result.returncode == 0 and os.path.exists(out_txt):
+                                with open(out_txt, "r", encoding="utf-8", errors="ignore") as fh:
+                                    text = fh.read()
+                                    cleaned = _clean_text(text)
+                                    if cleaned:
+                                        logger.info(
+                                            "PDF OCR via pdftoppm + tesseract CLI (%s chars): %.200s", len(cleaned), cleaned
+                                        )
+                                        return cleaned
+                        except Exception as exc:
+                            logger.debug("PDF OCR via CLI failed: %s", exc)
+        except Exception as exc:
+            logger.debug("PDF CLI OCR failed: %s", exc)
+
+        return "Attachment uploaded (PDF), but no text could be extracted."
 
     # Image OCR via pytesseract if available
     if ctype.startswith("image/"):
         try:
+            _set_tesseract_path()
             import pytesseract  # type: ignore
             from PIL import Image  # type: ignore
+            ocr_lang = os.environ.get("TESSERACT_LANG", "deu+eng")
 
             img = Image.open(io.BytesIO(data))
-            text = pytesseract.image_to_string(img)
-            return _clean_text(text)
+            text = pytesseract.image_to_string(img, lang=ocr_lang)
+            cleaned = _clean_text(text)
+            if cleaned:
+                logger.info("Image OCR extracted (%s chars): %.200s", len(cleaned), cleaned)
+                return cleaned
         except Exception as exc:
             logger.debug("Image OCR failed: %s", exc)
-            return ""
+        # fallback to CLI tesseract if available
+        try:
+            tesseract_bin = os.environ.get("TESSERACT_PATH") or shutil.which("tesseract")
+            ocr_lang = os.environ.get("TESSERACT_LANG", "deu+eng")
+            if tesseract_bin:
+                with tempfile.NamedTemporaryFile(suffix=".img", delete=True) as tmp_img, tempfile.NamedTemporaryFile(
+                    suffix=".txt", delete=True
+                ) as tmp_txt:
+                    tmp_img.write(data)
+                    tmp_img.flush()
+                    result = subprocess.run(
+                        [tesseract_bin, tmp_img.name, tmp_txt.name.replace(".txt", ""), "-l", ocr_lang],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode == 0 and os.path.exists(tmp_txt.name):
+                        with open(tmp_txt.name, "r", encoding="utf-8", errors="ignore") as fh:
+                            text = fh.read()
+                            cleaned = _clean_text(text)
+                            if cleaned:
+                                logger.info("Image OCR extracted via CLI (%s chars): %.200s", len(cleaned), cleaned)
+                                return cleaned
+        except Exception as exc:
+            logger.debug("Image OCR CLI failed: %s", exc)
+        return "Attachment uploaded (image), but no text could be extracted."
 
     return ""
 
@@ -243,5 +420,13 @@ class AIChatUpload(ServiceBase):
             "has_text": bool(extracted_text),
             "text": extracted_text,
         }
+        logger.info(
+            "[AI CHAT UPLOAD] file=%s content_type=%s size=%s extracted_len=%s preview=%.200s",
+            filename,
+            content_type,
+            len(data),
+            len(extracted_text),
+            extracted_text or "",
+        )
         self.request.response.setHeader("Content-Type", "application/json")
         return json.dumps(payload)
