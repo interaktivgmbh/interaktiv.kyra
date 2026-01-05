@@ -31,7 +31,6 @@ class AIChatTranslationsView(BrowserView):
             'Kyra replies in the same language you type your prompt.',
             'Kyra reagiert in derselben Sprache, in der du deine Anfrage stellst.',
         )
-        # fall back to english if we do not have a translation
         if language and language.startswith('de'):
             return default[1]
         return default[0]
