@@ -82,57 +82,77 @@ def _clean_text_preserve_newlines(value: str, limit: int = 8000) -> str:
     return cleaned[:limit]
 
 
+def _looks_like_rtf_header_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    tokens = stripped.split()
+    header_tokens = re.compile(r"^[a-z]{1,6}\d{0,5}$", re.IGNORECASE)
+    matches = [
+        token for token in tokens if header_tokens.match(token.lower())
+    ]
+    # if all tokens are header-like and there are at least 2 of them, treat as header
+    return len(tokens) > 0 and len(matches) == len(tokens)
+
+
 def _strip_rtf_header(cleaned: str) -> str:
-    stop_tokens = (
-        "rtf",
-        "cocoartf",
-        "fonttbl",
-        "colortbl",
-        "vieww",
-        "viewh",
-        "viewkind",
-        "pard",
-        "fcharset",
-        "ansicpg",
-        "paperw",
-        "paperh",
-        "tx720",
-        "tx1440",
-        "tx2160",
-        "tx2880",
-        "tx3600",
-        "tx4320",
-        "tx5040",
-        "tx5760",
-        "tx6480",
-        "tx7200",
-        "tx7920",
-        "tx8640",
-        "dirnatural",
-        "tightenfactor",
-    )
     lines = cleaned.splitlines()
-    kept = []
+    output = []
+    header_skipped = False
     for line in lines:
-        lower = line.lower()
-        if any(token in lower for token in stop_tokens):
+        if not header_skipped and _looks_like_rtf_header_line(line):
             continue
-        kept.append(line)
-    # if we stripped everything, return original
-    if not kept:
-        kept = [cleaned]
-    merged = "\n".join(kept)
-    # remove lingering style tokens like f0 fs24 cf0
-    merged = re.sub(r"\b[a-z]{1,3}\d{1,4}\b", " ", merged, flags=re.IGNORECASE)
-    # drop tokens that are just style markers (f0, fs24, cf0, etc.)
-    tokens = []
-    for token in merged.split():
-        low = token.lower()
-        if re.match(r"^[a-z]{1,3}\d{1,4}$", low):
+        header_skipped = True
+        output.append(line)
+    if not output:
+        return cleaned
+    candidate = "\n".join(output).strip()
+    if candidate.lower().startswith("rtf1") or candidate.lower().startswith("cocoatext"):
+        match = re.search(r"viewkind0", candidate, re.IGNORECASE)
+        if match:
+            candidate = candidate[match.end():].strip()
+    # drop lines that still look like header tokens at start
+    human_lines = []
+    started = False
+    for line in candidate.splitlines():
+        stripped = line.strip()
+        if not stripped:
             continue
-        tokens.append(token)
-    merged = " ".join(tokens)
-    return merged.strip()
+        if not started and _looks_like_rtf_header_line(stripped):
+            continue
+        started = True
+        human_lines.append(stripped)
+    if human_lines:
+        return "\n".join(human_lines).strip()
+    return candidate
+
+
+def _strip_rtf_style_prefix(value: str) -> str:
+    tokens = value.split()
+    prefix_tokens = {
+        "dirnatural",
+        "tightenfactor0",
+        "f0",
+        "fs24",
+        "cf0",
+        "co",
+        "cocoatextscaling0",
+        "cocoaplatform0",
+
+    }
+    while tokens and tokens[0].lower() in prefix_tokens:
+        tokens.pop(0)
+    return " ".join(tokens).strip()
+
+
+def _clean_rtf_body(raw: str) -> str:
+    if not isinstance(raw, str):
+        return ""
+    cleaned = _clean_text_preserve_newlines(raw)
+    stripped = _strip_rtf_header(cleaned)
+    result = stripped or cleaned
+    result = _strip_rtf_style_prefix(result)
+    return result
 
 
 def _set_tesseract_path():
@@ -165,7 +185,7 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
 
             raw = data.decode("utf-8", errors="ignore")
             text = rtf_to_text(raw)
-            cleaned = _clean_text_preserve_newlines(text)
+            cleaned = _clean_rtf_body(text)
             if cleaned:
                 return cleaned
         except Exception:
@@ -179,7 +199,7 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
             text = re.sub(r"\\'[0-9a-fA-F]{2}", " ", text)
             text = re.sub(r"\\[a-zA-Z]+-?\\d*", " ", text)
             text = re.sub(r"[{}]", " ", text)
-            cleaned = _clean_text_preserve_newlines(text)
+            cleaned = _clean_rtf_body(text)
             if cleaned:
                 return cleaned
         except Exception as exc:

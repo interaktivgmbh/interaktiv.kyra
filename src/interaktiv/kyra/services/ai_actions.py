@@ -519,6 +519,7 @@ def _derive_actions_from_gateway(goal: str, target, kyra) -> List[Dict[str, Any]
         normalized_action = _normalize_action(action)
         if normalized_action is not None:
             normalized.append(normalized_action)
+    normalized = _maybe_add_grid_action(goal, normalized)
     return normalized
 
 
@@ -696,13 +697,54 @@ def _derive_actions_from_patterns(goal: str) -> List[Dict[str, Any]]:
                 columns = max(1, min(4, int(col_match.group(1))))
             except Exception:
                 columns = 3
+        heading_text = None
+        body_text = None
+        quoted = re.findall(r'"([^"]+)"', text)
+        if len(quoted) >= 2:
+            heading_text, body_text = quoted[0], quoted[1]
+        elif len(quoted) == 1:
+            heading_text = quoted[0]
         actions.append(
             {
                 "type": "insert_block",
-                "payload": {"block": _build_grid_block(columns)},
+                "payload": {"block": _build_grid_block(columns, heading_text, body_text)},
             }
         )
 
+    return actions
+
+
+def _maybe_add_grid_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """If user asked for a grid but gateway didn't propose one, synthesize it."""
+    if not isinstance(goal, str):
+        return actions
+    if any(a.get("type") == "insert_block" and (a.get("payload") or {}).get("block", {}).get("@type") in ("grid", "gridBlock") for a in actions):
+        return actions
+    if not re.search(r"\bgrid\b", goal, re.IGNORECASE):
+        return actions
+
+    columns = 3
+    col_match = re.search(r"(\d+)\s*column", goal, re.IGNORECASE)
+    if col_match:
+        try:
+            columns = max(1, min(4, int(col_match.group(1))))
+        except Exception:
+            columns = 3
+
+    heading_text = None
+    body_text = None
+    quoted = re.findall(r'"([^"]+)"', goal)
+    if len(quoted) >= 2:
+        heading_text, body_text = quoted[0], quoted[1]
+    elif len(quoted) == 1:
+        heading_text = quoted[0]
+
+    actions.append(
+        {
+            "type": "insert_block",
+            "payload": {"block": _build_grid_block(columns, heading_text, body_text)},
+        }
+    )
     return actions
 
 
@@ -1007,10 +1049,27 @@ def _build_image_block(
     return block
 
 
-def _build_grid_block(columns: int) -> Dict[str, Any]:
+def _build_grid_block(columns: int, heading: Optional[str] = None, body: Optional[str] = None) -> Dict[str, Any]:
     cols = max(1, min(4, int(columns) if isinstance(columns, int) else 3))
     ids = [str(uuid.uuid4()) for _ in range(cols)]
-    blocks = {bid: {"@type": "empty"} for bid in ids}
+
+    # Build a slate block per column, honoring allowedBlocks (slate)
+    blocks: Dict[str, Any] = {}
+    for bid in ids:
+        nodes = []
+        if heading:
+            nodes.append({"type": "h2", "children": [{"text": heading}]})
+        if body:
+            nodes.append({"type": "p", "children": [{"text": body}]})
+        if not nodes:
+            nodes = [{"type": "p", "children": [{"text": ""}]}]
+        plaintext = " ".join([heading or "", body or ""]).strip()
+        blocks[bid] = {
+            "@type": "slate",
+            "plaintext": plaintext,
+            "value": nodes,
+        }
+
     return {
         "@type": "gridBlock",
         "columns": cols,
