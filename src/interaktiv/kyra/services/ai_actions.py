@@ -54,7 +54,23 @@ def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
     if kyra is not None:
         actions = _derive_actions_from_gateway(goal, target, kyra)
         if actions:
-            return actions
+            if not _has_teaser_action(actions):
+                teaser_actions = [
+                    a
+                    for a in _derive_actions_from_patterns(goal, target)
+                    if a.get("type") == "insert_block"
+                    and isinstance(a.get("payload", {}).get("block"), dict)
+                    and a["payload"]["block"].get("@type") == "teaser"
+                ]
+                actions.extend(teaser_actions)
+            return _prune_text_when_teaser(
+                goal,
+                _dedupe_teasers(
+                    _normalize_teaser_overwrite(
+                        _maybe_add_teaser_action(goal, target, actions)
+                    )
+                ),
+            )
 
     actions: List[Dict[str, Any]] = []
     title = _extract_value_after("title:", goal)
@@ -71,9 +87,14 @@ def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
         actions.append({"type": "update_language", "payload": {"language": language}})
 
     if not actions:
-        actions.extend(_derive_actions_from_patterns(goal))
+        actions.extend(_derive_actions_from_patterns(goal, target))
 
-    return actions
+    return _prune_text_when_teaser(
+        goal,
+        _dedupe_teasers(
+            _normalize_teaser_overwrite(_maybe_add_teaser_action(goal, target, actions))
+        ),
+    )
 
 
 def _build_plan_prompt_payload() -> Dict[str, Any]:
@@ -262,6 +283,187 @@ def _clean_heading_text(text: str) -> str:
     text = re.sub(r"\(\s*h[1-6]\s*\)", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(?:h|level)\s*[1-6]\b", "", text, flags=re.IGNORECASE)
     return text.strip()
+
+
+def _highlighted_text(text: str) -> str:
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    trimmed = text.strip()
+    quoted = re.findall(r'"([^"]+)"', trimmed)
+    if not quoted:
+        quoted = re.findall(r"'([^']+)'", trimmed)
+    if quoted:
+        return quoted[0].strip()
+    match = re.search(r"\bteaser\b.*?[:\-]\s*(.+?)(?:\n|$)", trimmed, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    sentences = re.split(r"\n+", trimmed)
+    return sentences[0].strip()
+
+
+def _extract_first_url(text: str) -> Optional[str]:
+    if not isinstance(text, str) or not text:
+        return None
+    match = re.search(r"https?://[^\s\"'<>]+", text)
+    if match:
+        return match.group(0).rstrip(".,;")
+    return None
+
+
+def _extract_teaser_description(text: str) -> Optional[str]:
+    if not isinstance(text, str) or not text.strip():
+        return None
+    description = _extract_value_after("description:", text)
+    if description:
+        return description
+    desc_match = re.search(
+        r"(?:descr|description|beschreibung|text|summary)\s*(?:for|to|:)\s*(.+?)(?:\n|$)",
+        text,
+        re.IGNORECASE,
+    )
+    if desc_match:
+        return desc_match.group(1).strip()
+    quoted = re.findall(r'"([^"]+)"', text) or re.findall(r"'([^']+)'", text)
+    if len(quoted) >= 2:
+        return quoted[-1].strip()
+    return None
+
+
+def _extract_teaser_href(text: str, target=None) -> Optional[str]:
+    href = _extract_first_url(text)
+    if href:
+        return href
+    link_match = re.search(
+        r"(?:target|link(?:ed)?|href)\s*(?:to|:)?\s*([^\s]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if link_match:
+        candidate = link_match.group(1).rstrip(".,;")
+        if candidate.startswith("http") or candidate.startswith("/"):
+            return candidate
+    target_url = None
+    if target is not None:
+        if isinstance(target, dict):
+            target_url = target.get("url") or target.get("href")
+        else:
+            attr = getattr(target, "absolute_url", None)
+            if callable(attr):
+                try:
+                    target_url = attr()
+                except Exception:
+                    target_url = ""
+    if isinstance(target_url, str) and target_url.strip():
+        return target_url.strip()
+    return None
+
+
+def _teaser_custom_requested(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    if re.search(r"(title|headline|überschrift|custom|overwrite)", text, re.IGNORECASE):
+        return True
+    if re.search(r"(description|beschreibung)", text, re.IGNORECASE):
+        return True
+    return False
+
+
+def _has_teaser_action(actions: List[Dict[str, Any]]) -> bool:
+    for action in actions or []:
+        if (
+            action.get("type") == "insert_block"
+            and isinstance(action.get("payload"), dict)
+            and isinstance(action["payload"].get("block"), dict)
+            and action["payload"]["block"].get("@type") == "teaser"
+        ):
+            return True
+    return False
+
+
+def _maybe_add_teaser_action(goal: str, target, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(goal, str):
+        return actions
+    if _has_teaser_action(actions):
+        return actions
+    if not re.search(r"\bteaser\b", goal, re.IGNORECASE):
+        return actions
+
+    teaser_href = _extract_teaser_href(goal, target)
+    if not teaser_href:
+        return actions
+
+    teaser_title = _highlighted_text(goal)
+    teaser_description = _extract_teaser_description(goal)
+    teaser_payload: Dict[str, Any] = {"@type": "teaser", "href": teaser_href}
+    custom_requested = _teaser_custom_requested(goal) or bool(teaser_description)
+    if custom_requested:
+        teaser_payload["overwrite"] = True
+        teaser_payload["_custom_requested"] = True
+    if custom_requested and teaser_title:
+        teaser_payload["title"] = teaser_title
+    if custom_requested and teaser_description:
+        teaser_payload["description"] = teaser_description
+
+    actions.append({"type": "insert_block", "payload": {"block": teaser_payload}})
+    return actions
+
+
+def _normalize_teaser_overwrite(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    for action in actions or []:
+        if (
+            action.get("type") == "insert_block"
+            and isinstance(action.get("payload"), dict)
+            and isinstance(action["payload"].get("block"), dict)
+            and action["payload"]["block"].get("@type") == "teaser"
+        ):
+            block = action["payload"]["block"]
+            title = block.get("title")
+            desc = block.get("description")
+            custom_flag = block.pop("_custom_requested", False)
+            if not custom_flag:
+                # By default, do not customize teaser content; keep only the link.
+                block.pop("overwrite", None)
+                block.pop("title", None)
+                block.pop("description", None)
+            else:
+                has_custom = (
+                    isinstance(title, str) and title.strip()
+                ) or (isinstance(desc, str) and desc.strip())
+                if not has_custom:
+                    block.pop("overwrite", None)
+    return actions
+
+
+def _dedupe_teasers(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = False
+    deduped: List[Dict[str, Any]] = []
+    for action in actions or []:
+        if (
+            action.get("type") == "insert_block"
+            and isinstance(action.get("payload"), dict)
+            and isinstance(action["payload"].get("block"), dict)
+            and action["payload"]["block"].get("@type") == "teaser"
+        ):
+            if seen:
+                continue
+            seen = True
+        deduped.append(action)
+    return deduped
+
+
+def _prune_text_when_teaser(goal: str, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(goal, str):
+        return actions
+    if not re.search(r"\bteaser\b", goal, re.IGNORECASE):
+        return actions
+    if not _has_teaser_action(actions):
+        return actions
+    pruned: List[Dict[str, Any]] = []
+    for action in actions or []:
+        if action.get("type") == "insert_text_block":
+            continue
+        pruned.append(action)
+    return pruned
 
 
 def _normalize_image_reference(payload: Dict[str, Any], action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -523,7 +725,7 @@ def _derive_actions_from_gateway(goal: str, target, kyra) -> List[Dict[str, Any]
     return normalized
 
 
-def _derive_actions_from_patterns(goal: str) -> List[Dict[str, Any]]:
+def _derive_actions_from_patterns(goal: str, target=None) -> List[Dict[str, Any]]:
     actions: List[Dict[str, Any]] = []
     text = goal.strip()
 
@@ -562,24 +764,44 @@ def _derive_actions_from_patterns(goal: str) -> List[Dict[str, Any]]:
                 }
             )
 
-    text_block_match = re.search(
-        r"(?:text block|textblock)\s*[:\-]?\s+(.+)$", text, re.IGNORECASE
-    )
-    if not text_block_match:
+    teaser_handled = False
+    if re.search(r"\bteaser\b", text, re.IGNORECASE):
+        teaser_title = _highlighted_text(text)
+        teaser_description = _extract_teaser_description(text)
+        teaser_href = _extract_teaser_href(text, target)
+        if teaser_href:
+            teaser_payload: Dict[str, Any] = {"@type": "teaser", "href": teaser_href}
+            custom_requested = _teaser_custom_requested(text) or bool(teaser_description)
+            if custom_requested:
+                teaser_payload["overwrite"] = True
+                teaser_payload["_custom_requested"] = True
+                if teaser_title:
+                    teaser_payload["title"] = teaser_title
+                if teaser_description:
+                    teaser_payload["description"] = teaser_description
+            actions.append({"type": "insert_block", "payload": {"block": teaser_payload}})
+            teaser_handled = True
+
+    text_block_match = None
+    if not teaser_handled:
         text_block_match = re.search(
-            r"(?:add|insert|fuege|füge).*?(?:text block|textblock)\s*[:\-]?\s+(.+)$",
-            text,
-            re.IGNORECASE,
+            r"(?:text block|textblock)\s*[:\-]?\s+(.+)$", text, re.IGNORECASE
         )
-    if text_block_match:
-        block_text = _strip_wrapping_quotes(text_block_match.group(1))
-        if block_text:
-            actions.append(
-                {
-                    "type": "insert_text_block",
-                    "payload": {"text": block_text},
-                }
+        if not text_block_match:
+            text_block_match = re.search(
+                r"(?:add|insert|fuege|füge).*?(?:text block|textblock)\s*[:\-]?\s+(.+)$",
+                text,
+                re.IGNORECASE,
             )
+        if text_block_match:
+            block_text = _strip_wrapping_quotes(text_block_match.group(1))
+            if block_text:
+                actions.append(
+                    {
+                        "type": "insert_text_block",
+                        "payload": {"text": block_text},
+                    }
+                )
 
     heading_match = re.search(
         r"(?:heading|headline|überschrift)\s*[:\-]?\s+(.+)$",
@@ -685,7 +907,18 @@ def _derive_actions_from_patterns(goal: str) -> List[Dict[str, Any]]:
 
     # Teaser block
     if re.search(r"\bteaser\b", text, re.IGNORECASE):
-        actions.append({"type": "insert_block", "payload": {"block": {"@type": "teaser"}}})
+        teaser_title = _highlighted_text(text)
+        teaser_description = _extract_teaser_description(text)
+        teaser_href = _extract_teaser_href(text, target)
+        if teaser_href:
+            teaser_payload: Dict[str, Any] = {"@type": "teaser", "href": teaser_href}
+            if teaser_title or teaser_description:
+                teaser_payload["overwrite"] = True
+            if teaser_title:
+                teaser_payload["title"] = teaser_title
+            if teaser_description:
+                teaser_payload["description"] = teaser_description
+            actions.append({"type": "insert_block", "payload": {"block": teaser_payload}})
 
     # Grid block (default Volto grid block id: gridBlock)
     grid_match = re.search(r"\bgrid\b", text, re.IGNORECASE)
@@ -789,6 +1022,14 @@ def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
             scale = payload.get("scale") or payload.get("size")
             scale_text = f" ({scale})" if scale else ""
             diffs.append(f"+ image: {payload.get('url')}{scale_text}")
+        elif action_type == "insert_block":
+            block = payload.get("block") or {}
+            block_type = block.get("@type")
+            if block_type == "teaser":
+                summaries.append("Insert teaser block")
+                title = block.get("title") or ""
+                href = block.get("href") or ""
+                diffs.append(f"+ teaser: {title} -> {href}")
 
     return {
         "summary": ", ".join(summaries) if summaries else "No changes proposed",
