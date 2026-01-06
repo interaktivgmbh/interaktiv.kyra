@@ -43,7 +43,7 @@ def _extract_value_after(label: str, text: str) -> Optional[str]:
     idx = lower.find(label)
     if idx == -1:
         return None
-    value = text[idx + len(label) :].strip()
+    value = text[idx + len(label):].strip()
     for sep in (";", "\n"):
         if sep in value:
             value = value.split(sep)[0].strip()
@@ -59,15 +59,21 @@ def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
                     a
                     for a in _derive_actions_from_patterns(goal, target)
                     if a.get("type") == "insert_block"
-                    and isinstance(a.get("payload", {}).get("block"), dict)
-                    and a["payload"]["block"].get("@type") == "teaser"
+                       and isinstance(a.get("payload", {}).get("block"), dict)
+                       and a["payload"]["block"].get("@type") == "teaser"
                 ]
                 actions.extend(teaser_actions)
+            # Enrich with derived helpers (grid/video/html/teaser) and cleanup
+            actions = _maybe_add_grid_action(goal, actions)
+            actions = _maybe_add_video_action(goal, actions)
+            actions = _maybe_add_html_action(goal, actions)
             return _prune_text_when_teaser(
                 goal,
-                _dedupe_teasers(
-                    _normalize_teaser_overwrite(
-                        _maybe_add_teaser_action(goal, target, actions)
+                _merge_text_into_html(
+                    _dedupe_teasers(
+                        _normalize_teaser_overwrite(
+                            _maybe_add_teaser_action(goal, target, actions)
+                        )
                     )
                 ),
             )
@@ -89,10 +95,15 @@ def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
     if not actions:
         actions.extend(_derive_actions_from_patterns(goal, target))
 
+    actions = _maybe_add_grid_action(goal, actions)
+    actions = _maybe_add_video_action(goal, actions)
+    actions = _maybe_add_html_action(goal, actions)
     return _prune_text_when_teaser(
         goal,
-        _dedupe_teasers(
-            _normalize_teaser_overwrite(_maybe_add_teaser_action(goal, target, actions))
+        _merge_text_into_html(
+            _dedupe_teasers(
+                _normalize_teaser_overwrite(_maybe_add_teaser_action(goal, target, actions))
+            )
         ),
     )
 
@@ -380,6 +391,18 @@ def _has_teaser_action(actions: List[Dict[str, Any]]) -> bool:
     return False
 
 
+def _has_block_type(actions: List[Dict[str, Any]], block_type: str) -> bool:
+    for action in actions or []:
+        if (
+            action.get("type") == "insert_block"
+            and isinstance(action.get("payload"), dict)
+            and isinstance(action["payload"].get("block"), dict)
+            and action["payload"]["block"].get("@type") == block_type
+        ):
+            return True
+    return False
+
+
 def _maybe_add_teaser_action(goal: str, target, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not isinstance(goal, str):
         return actions
@@ -408,6 +431,43 @@ def _maybe_add_teaser_action(goal: str, target, actions: List[Dict[str, Any]]) -
     return actions
 
 
+def _maybe_add_video_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(goal, str):
+        return actions
+    if _has_block_type(actions, "video"):
+        return actions
+    url_match = re.search(r"https?://\S+", goal)
+    is_video = bool(re.search(r"\bvideo\b", goal, re.IGNORECASE))
+    url_is_video = url_match and re.search(
+        r"(youtube|youtu\.be|vimeo|\.mp4|\.mov|\.webm)",
+        url_match.group(0),
+        re.IGNORECASE,
+    )
+    if is_video or url_is_video:
+        block = {"@type": "video"}
+        if url_match:
+            block["url"] = url_match.group(0)
+        actions.append({"type": "insert_block", "payload": {"block": block}})
+    return actions
+
+
+def _maybe_add_html_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(goal, str):
+        return actions
+    if _has_block_type(actions, "html"):
+        return actions
+    if not re.search(r"\bhtml\b", goal, re.IGNORECASE):
+        return actions
+    html_match = re.search(r"(?:html block|html)\s*[:\-]?\s+(.+)$", goal, re.IGNORECASE)
+    html_content = ""
+    if html_match:
+        html_content = html_match.group(1)
+    actions.append(
+        {"type": "insert_block", "payload": {"block": {"@type": "html", "html": html_content}}}
+    )
+    return actions
+
+
 def _normalize_teaser_overwrite(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for action in actions or []:
         if (
@@ -427,8 +487,8 @@ def _normalize_teaser_overwrite(actions: List[Dict[str, Any]]) -> List[Dict[str,
                 block.pop("description", None)
             else:
                 has_custom = (
-                    isinstance(title, str) and title.strip()
-                ) or (isinstance(desc, str) and desc.strip())
+                                 isinstance(title, str) and title.strip()
+                             ) or (isinstance(desc, str) and desc.strip())
                 if not has_custom:
                     block.pop("overwrite", None)
     return actions
@@ -464,6 +524,37 @@ def _prune_text_when_teaser(goal: str, actions: List[Dict[str, Any]]) -> List[Di
             continue
         pruned.append(action)
     return pruned
+
+
+def _merge_text_into_html(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    has_html = _has_block_type(actions, "html")
+    if not has_html:
+        return actions
+
+    merged: List[Dict[str, Any]] = []
+    pending_text = None
+
+    for action in actions or []:
+        if action.get("type") == "insert_text_block":
+            pending_text = (action.get("payload") or {}).get("text")
+            continue
+
+        if (
+            action.get("type") == "insert_block"
+            and isinstance(action.get("payload"), dict)
+            and isinstance(action["payload"].get("block"), dict)
+            and action["payload"]["block"].get("@type") == "html"
+        ):
+            block = action["payload"]["block"]
+            html_content = block.get("html") or ""
+            if not html_content and isinstance(pending_text, str) and pending_text.strip():
+                block["html"] = pending_text.strip()
+                pending_text = None
+            merged.append(action)
+        else:
+            merged.append(action)
+
+    return merged
 
 
 def _normalize_image_reference(payload: Dict[str, Any], action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -659,7 +750,7 @@ def _extract_json_from_text(text: str) -> Optional[Any]:
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(text[start : end + 1])
+            return json.loads(text[start: end + 1])
         except Exception:
             return None
     return None
@@ -879,21 +970,36 @@ def _derive_actions_from_patterns(goal: str, target=None) -> List[Dict[str, Any]
                 }
             )
 
-    # Simple video block if a video URL is present
     video_url_match = re.search(r"https?://\S+", text)
-    if video_url_match and re.search(r"\bvideo\b", text, re.IGNORECASE):
-        actions.append(
-            {
-                "type": "insert_block",
-                "payload": {"block": {"@type": "video", "url": video_url_match.group(0)}},
-            }
-        )
+    wants_video = re.search(r"\bvideo\b", text, re.IGNORECASE)
+    url_is_video = video_url_match and re.search(
+        r"(youtube|youtu\.be|vimeo|\.mp4|\.mov|\.webm)",
+        video_url_match.group(0),
+        re.IGNORECASE,
+    )
+    if wants_video or url_is_video:
+        block = {"@type": "video"}
+        if video_url_match:
+            block["url"] = video_url_match.group(0)
+        actions.append({"type": "insert_block", "payload": {"block": block}})
 
-    # Simple map block
     if re.search(r"\bmap\b|\bkart", text, re.IGNORECASE):
         actions.append({"type": "insert_block", "payload": {"block": {"@type": "maps"}}})
 
-    # Simple listing block
+    if re.search(r"\bhtml\b", text, re.IGNORECASE):
+        html_match = re.search(
+            r"(?:html block|html)\s*[:\-]?\s+(.+)$", text, re.IGNORECASE
+        )
+        html_content = ""
+        if html_match:
+            html_content = html_match.group(1)
+        actions.append(
+            {
+                "type": "insert_block",
+                "payload": {"block": {"@type": "html", "html": html_content}},
+            }
+        )
+
     if re.search(r"\blisting\b", text, re.IGNORECASE):
         variation = "default"
         if re.search(r"image", text, re.IGNORECASE):
@@ -951,7 +1057,9 @@ def _maybe_add_grid_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dic
     """If user asked for a grid but gateway didn't propose one, synthesize it."""
     if not isinstance(goal, str):
         return actions
-    if any(a.get("type") == "insert_block" and (a.get("payload") or {}).get("block", {}).get("@type") in ("grid", "gridBlock") for a in actions):
+    if any(a.get("type") == "insert_block" and (a.get("payload") or {}).get("block", {}).get("@type") in ("grid",
+                                                                                                          "gridBlock")
+           for a in actions):
         return actions
     if not re.search(r"\bgrid\b", goal, re.IGNORECASE):
         return actions
@@ -1030,6 +1138,13 @@ def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
                 title = block.get("title") or ""
                 href = block.get("href") or ""
                 diffs.append(f"+ teaser: {title} -> {href}")
+            elif block_type == "video":
+                summaries.append("Insert video block")
+                diffs.append(f"+ video: {block.get('url')}")
+            elif block_type == "html":
+                summaries.append("Insert html block")
+                snippet = (block.get("html") or "")[:40]
+                diffs.append(f"+ html: {snippet}")
 
     return {
         "summary": ", ".join(summaries) if summaries else "No changes proposed",
@@ -1055,7 +1170,7 @@ def _resolve_target(context, data: Dict[str, Any]):
         portal = api.portal.get()
         portal_url = portal.absolute_url()
         if url.startswith("http") and url.startswith(portal_url):
-            url = url[len(portal_url) :]
+            url = url[len(portal_url):]
         if url.startswith("/"):
             return api.content.get(path=url.lstrip("/"))
 
