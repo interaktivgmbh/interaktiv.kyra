@@ -1821,7 +1821,11 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
 
     if translated:
         logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
-        return _strip_basic_html(translated)
+        cleaned = _strip_basic_html(translated)
+        if _is_boilerplate_translation(cleaned):
+            logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
+            return text_for_translation
+        return cleaned
 
     # Fallback: try chat endpoint (may 404 on some gateways)
     payload = {
@@ -1855,12 +1859,20 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
                 content = msg.get("content")
                 if isinstance(content, str) and content.strip():
                     logger.info("[KYRA AI] Translation message.content len=%s", len(content.strip()))
-                    return content.strip()
+                    cleaned = _strip_basic_html(content.strip())
+                    if _is_boilerplate_translation(cleaned):
+                        logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
+                        return text_for_translation
+                    return cleaned
             for key in ("result", "response", "content", "text", "output"):
                 value = response.get(key)
                 if isinstance(value, str) and value.strip():
                     logger.info("[KYRA AI] Translation %s len=%s", key, len(value.strip()))
-                    return _strip_basic_html(value.strip())
+                    cleaned = _strip_basic_html(value.strip())
+                    if _is_boilerplate_translation(cleaned):
+                        logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
+                        return text_for_translation
+                    return cleaned
             # sometimes nested under "data"
             data = response.get("data")
             if isinstance(data, dict):
@@ -1868,7 +1880,11 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
                     val = data.get(key)
                     if isinstance(val, str) and val.strip():
                         logger.info("[KYRA AI] Translation data.%s len=%s", key, len(val.strip()))
-                        return _strip_basic_html(val.strip())
+                        cleaned = _strip_basic_html(val.strip())
+                        if _is_boilerplate_translation(cleaned):
+                            logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
+                            return text_for_translation
+                        return cleaned
             logger.warning("[KYRA AI] Translation gateway empty response: %s", response)
     except Exception as exc:
         logger.warning("[KYRA AI] Translation failed, returning original text: %s", exc)
@@ -1892,6 +1908,17 @@ def _html_to_text(value: str) -> str:
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
     cleaned = re.sub(r"\\s+", " ", cleaned)
     return cleaned.strip()
+
+
+def _is_boilerplate_translation(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    lowered = text.lower()
+    return (
+        "tinymce" in lowered
+        or "modify the text according to the instruction" in lowered
+        or "bitte ändern sie den text gemäß der anweisung" in lowered
+    )
 
 
 def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str, target_lang: str):
