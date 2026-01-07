@@ -1427,6 +1427,12 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
 
     portal = api.portal.get()
     source_lang = getattr(obj, "Language", lambda: "")() or api.portal.get_default_language()
+    supported_langs = []
+    try:
+        pl = api.portal.get_tool("portal_languages")
+        supported_langs = pl.getSupportedLanguages() or []
+    except Exception:
+        supported_langs = []
     if source_lang and source_lang.strip().lower() == target_language.strip().lower():
         return {
             "created": 0,
@@ -1514,7 +1520,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
     for item in targets:
         rel = _rel_path(item)
         rel_parts = [p for p in rel.split("/") if p]
-        if rel_parts and rel_parts[0] == source_lang:
+        # Try to infer source language from path if missing
+        if (not source_lang or not source_lang.strip()) and rel_parts:
+            if rel_parts[0] in supported_langs:
+                source_lang = rel_parts[0]
+        if rel_parts and source_lang and rel_parts[0] == source_lang:
             rel_parts = rel_parts[1:]
 
         existing = None
@@ -1545,8 +1555,15 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     continue
                 if existing is None:
                     existing = manager.add_translation(target_lang)
-                    status = "created"
-                    created += 1
+                    if existing:
+                        status = "created"
+                        created += 1
+                    else:
+                        logger.warning(
+                            "[KYRA AI TRANSLATE] manager.add_translation returned None for %s -> %s",
+                            _rel_path(item),
+                            target_lang,
+                        )
                 else:
                     status = "updated"
                     updated += 1
@@ -1614,6 +1631,13 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 status = "updated"
                 updated += 1
+        else:
+            logger.info(
+                "[KYRA AI TRANSLATE] using existing translation via PAM %s -> %s status=%s",
+                _rel_path(item),
+                _rel_path(existing),
+                status,
+            )
 
         try:
             if hasattr(existing, "setTitle"):
