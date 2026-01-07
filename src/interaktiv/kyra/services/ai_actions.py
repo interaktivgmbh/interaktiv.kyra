@@ -10,6 +10,7 @@ from interaktiv.kyra.api import Chat
 from interaktiv.kyra.api.prompts import Prompts
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
+from plone.i18n.normalizer import idnormalizer
 from persistent.list import PersistentList
 from persistent.mapping import PersistentMapping
 from plone import api
@@ -1588,6 +1589,12 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     continue
 
             target_id = rel_parts[-1] if rel_parts else item.getId()
+            translated_title_for_id = _translate_text(
+                translator, getattr(item, "Title", lambda: "")(), source_lang, target_lang
+            )
+            norm_id = idnormalizer.normalize(translated_title_for_id) if translated_title_for_id else ""
+            if norm_id:
+                target_id = norm_id
             existing = getattr(container, target_id, None)
 
             if existing and not overwrite:
@@ -1751,6 +1758,9 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
     if not (translator.gateway_url and translator._get_headers()):
         return text
 
+    # strip HTML before sending
+    text_for_translation = _html_to_text(text).strip() or text
+
     # First, try prompt-tool apply (gateway_url points to /prompts)
     prompt_client = Prompts()
     prompt_id = _get_cached_translate_prompt_id()
@@ -1773,7 +1783,7 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
     }
     def _apply_prompt(pid: str, txt: str, tgt: str) -> Optional[str]:
         try:
-            enriched = f"TARGET: {tgt}\n{txt}"
+            enriched = f"TARGET: {tgt}\n{text_for_translation}"
             resp = prompt_client.apply(pid, {"query": enriched, "input": enriched, "params": {"language": tgt}})
             if isinstance(resp, dict):
                 if resp.get("error"):
@@ -1792,7 +1802,7 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
 
     translated = None
     if prompt_id:
-        translated = _apply_prompt(prompt_id, text, target_lang)
+        translated = _apply_prompt(prompt_id, text_for_translation, target_lang)
         if translated is None:
             prompt_id = None
 
@@ -1802,7 +1812,7 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
             new_id = created.get("id") or created.get("_id")
             if new_id:
                 _set_cached_translate_prompt_id(new_id)
-                translated = _apply_prompt(new_id, text, target_lang)
+                translated = _apply_prompt(new_id, text_for_translation, target_lang)
             else:
                 logger.warning("[KYRA AI] Translate prompt create returned no id: %s", created)
         except Exception as exc:
@@ -1869,9 +1879,18 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
 def _strip_basic_html(value: str) -> str:
     if not isinstance(value, str):
         return ""
-    # Remove wrapping <p>...</p> and basic tags, keep inner text
-    cleaned = re.sub(r"^\\s*<p>(.*)</p>\\s*$", r"\\1", value.strip(), flags=re.IGNORECASE | re.DOTALL)
-    cleaned = re.sub(r"</?(p|br|span|div|strong|em|b|i)>", "", cleaned, flags=re.IGNORECASE)
+    # Remove all HTML tags, keep inner text
+    cleaned = re.sub(r"<br\\s*/?>", "\\n", value, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    return cleaned.strip()
+
+
+def _html_to_text(value: str) -> str:
+    if not isinstance(value, str):
+        return ""
+    cleaned = re.sub(r"<br\\s*/?>", "\\n", value, flags=re.IGNORECASE)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"\\s+", " ", cleaned)
     return cleaned.strip()
 
 
