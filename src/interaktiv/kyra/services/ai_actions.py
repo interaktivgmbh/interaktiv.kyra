@@ -5,6 +5,9 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from AccessControl import Unauthorized
+from interaktiv.kyra import logger
+from interaktiv.kyra.api import Chat
+from interaktiv.kyra.api.prompts import Prompts
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
 from persistent.list import PersistentList
@@ -22,6 +25,7 @@ ALLOWLIST = {
     "update_title",
     "update_description",
     "update_language",
+    "translate_content",
     "insert_text_block",
     "insert_heading_block",
     "insert_list_block",
@@ -32,6 +36,7 @@ ALLOWLIST = {
 
 PLAN_PROMPT_ID = "kyra-actions-plan"
 PLAN_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_actions_plan_prompt_id_v3"
+TRANSLATE_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_translate_prompt_id_v1"
 
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{32,36}$")
 RESOLVEUID_RE = re.compile(r"resolveuid/([0-9a-fA-F-]{32,36})")
@@ -50,10 +55,32 @@ def _extract_value_after(label: str, text: str) -> Optional[str]:
     return value or None
 
 
-def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
+def _derive_actions(goal: str, target=None, kyra=None, translate_opts: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    translate_intent = False
+    inferred_lang = None
+    if _is_translation_goal(goal):
+        translate_intent = True
+        inferred_lang = _guess_target_language(goal)
+    target_lang = translate_opts.get("target_language") if translate_opts else None
+    mode = translate_opts.get("mode") if translate_opts else None
+    overwrite = bool(translate_opts.get("overwrite")) if translate_opts else False
+    effective_lang = target_lang or inferred_lang or "en"
+
     if kyra is not None:
         actions = _derive_actions_from_gateway(goal, target, kyra)
         if actions:
+            if translate_opts or translate_intent:
+                actions = _remove_action(actions, "update_language")
+                actions.append(
+                    {
+                        "type": "translate_content",
+                        "payload": {
+                            "target_language": effective_lang,
+                            "mode": mode or "single",
+                            "overwrite": overwrite,
+                        },
+                    }
+                )
             if not _has_teaser_action(actions):
                 teaser_actions = [
                     a
@@ -79,6 +106,17 @@ def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
             )
 
     actions: List[Dict[str, Any]] = []
+    if translate_opts or translate_intent:
+        actions.append(
+            {
+                "type": "translate_content",
+                "payload": {
+                    "target_language": effective_lang,
+                    "mode": mode or "single",
+                    "overwrite": overwrite,
+                },
+            }
+        )
     title = _extract_value_after("title:", goal)
     description = _extract_value_after("description:", goal)
     language = _extract_value_after("language:", goal)
@@ -89,7 +127,7 @@ def _derive_actions(goal: str, target=None, kyra=None) -> List[Dict[str, Any]]:
         actions.append(
             {"type": "update_description", "payload": {"description": description}}
         )
-    if language:
+    if language and not translate_intent and not translate_opts:
         actions.append({"type": "update_language", "payload": {"language": language}})
 
     if not actions:
@@ -207,6 +245,23 @@ def _set_cached_prompt_id(prompt_id: str) -> None:
     annotations[PLAN_PROMPT_CACHE_KEY] = prompt_id
 
 
+def _get_cached_translate_prompt_id() -> Optional[str]:
+    portal = api.portal.get()
+    annotations = IAnnotations(portal)
+    value = annotations.get(TRANSLATE_PROMPT_CACHE_KEY)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _set_cached_translate_prompt_id(prompt_id: str) -> None:
+    if not isinstance(prompt_id, str) or not prompt_id.strip():
+        return
+    portal = api.portal.get()
+    annotations = IAnnotations(portal)
+    annotations[TRANSLATE_PROMPT_CACHE_KEY] = prompt_id
+
+
 def _canonical_action_type(action_type: str) -> str:
     action_type = (action_type or "").strip()
     mapping = {
@@ -232,8 +287,44 @@ def _canonical_action_type(action_type: str) -> str:
         "insert_image": "insert_image_block",
         "image_block": "insert_image_block",
         "add_image": "insert_image_block",
+        "translate": "translate_content",
+        "translate_content": "translate_content",
     }
     return mapping.get(action_type, action_type)
+
+
+def _remove_action(actions: List[Dict[str, Any]], action_type: str) -> List[Dict[str, Any]]:
+    return [a for a in actions if a.get("type") != action_type]
+
+
+def _is_translation_goal(goal: str) -> bool:
+    if not isinstance(goal, str):
+        return False
+    return bool(re.search(r"\b(translate|übersetz|uebersetz|translation)\b", goal, re.IGNORECASE))
+
+
+def _guess_target_language(goal: str) -> Optional[str]:
+    if not isinstance(goal, str):
+        return None
+    goal_low = goal.lower()
+    mapping = {
+        "english": "en",
+        "englisch": "en",
+        "en": "en",
+        "german": "de",
+        "deutsch": "de",
+        "de": "de",
+        "french": "fr",
+        "français": "fr",
+        "fr": "fr",
+        "spanish": "es",
+        "español": "es",
+        "es": "es",
+    }
+    for key, code in mapping.items():
+        if re.search(rf"\b{re.escape(key)}\b", goal_low):
+            return code
+    return None
 
 
 def _extract_heading_level_from_text(text: str, default: int = 2) -> int:
@@ -730,6 +821,19 @@ def _normalize_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             block = payload
         if isinstance(block, dict) and isinstance(block.get("@type"), str) and block.get("@type").strip():
             return {"type": "insert_block", "payload": {"block": block}}
+    elif action_type == "translate_content":
+        target_language = payload.get("target_language") or action.get("target_language")
+        mode = payload.get("mode") or action.get("mode") or "single"
+        overwrite = bool(payload.get("overwrite") or action.get("overwrite"))
+        if isinstance(target_language, str) and target_language.strip():
+            return {
+                "type": "translate_content",
+                "payload": {
+                    "target_language": target_language.strip(),
+                    "mode": mode if mode in ("single", "subtree") else "single",
+                    "overwrite": overwrite,
+                },
+            }
     return None
 
 
@@ -1145,12 +1249,29 @@ def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
                 summaries.append("Insert html block")
                 snippet = (block.get("html") or "")[:40]
                 diffs.append(f"+ html: {snippet}")
+        elif action_type == "translate_content":
+            summaries.append("Translate content")
+            diffs.append(
+                f"+ translate -> {payload.get('target_language')} ({payload.get('mode', 'single')})"
+            )
 
     return {
         "summary": ", ".join(summaries) if summaries else "No changes proposed",
         "diff": "\n".join(diffs),
         "human_steps": summaries,
     }
+
+
+def _build_translation_stub(actions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    for action in actions:
+        if action.get("type") == "translate_content":
+            payload = action.get("payload") or {}
+            return {
+                "target_language": payload.get("target_language"),
+                "mode": payload.get("mode", "single"),
+                "overwrite": bool(payload.get("overwrite")),
+            }
+    return None
 
 
 def _resolve_target(context, data: Dict[str, Any]):
@@ -1188,6 +1309,7 @@ def _ensure_editor(obj):
 
 def _apply_actions(obj, actions: List[Dict[str, Any]]) -> List[str]:
     changed: List[str] = []
+    translation_report: Optional[Dict[str, Any]] = None
     for action in actions:
         action_type = action.get("type")
         payload = action.get("payload") or {}
@@ -1276,9 +1398,308 @@ def _apply_actions(obj, actions: List[Dict[str, Any]]) -> List[str]:
                 raise BadRequest("insert_block block requires @type")
             _insert_block(obj, block)
             changed.append("blocks")
+        elif action_type == "translate_content":
+            translation_report = _apply_translation(obj, payload)
+            changed.append("translation")
 
     obj.reindexObject()
+    if translation_report is not None:
+        obj._v_last_translation_report = translation_report
     return changed
+
+
+def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
+    target_language = payload.get("target_language")
+    mode = payload.get("mode", "single")
+    overwrite = bool(payload.get("overwrite"))
+    translator = Chat()
+    gateway_available = bool(translator.gateway_url and translator._get_headers())
+    logger.info(
+        "[KYRA AI TRANSLATE] start target=%s mode=%s overwrite=%s gateway=%s",
+        target_language,
+        mode,
+        overwrite,
+        "yes" if gateway_available else "no",
+    )
+
+    if not isinstance(target_language, str) or not target_language.strip():
+        raise BadRequest("translate_content requires target_language")
+
+    portal = api.portal.get()
+    source_lang = getattr(obj, "Language", lambda: "")() or api.portal.get_default_language()
+    if source_lang and source_lang.strip().lower() == target_language.strip().lower():
+        return {
+            "created": 0,
+            "updated": 0,
+            "skipped": 1,
+            "failed": 0,
+            "details": [
+                {
+                    "source": getattr(obj, "absolute_url", lambda: "")(),
+                    "target": None,
+                    "status": "skip",
+                    "note": "Source and target language are identical",
+                }
+            ],
+            "source_language": source_lang,
+            "target_language": target_language,
+            "mode": mode,
+        }
+
+    target_lang = target_language.strip()
+    details: List[Dict[str, Any]] = []
+
+    def _rel_path(o):
+        url = getattr(o, "absolute_url", lambda: "")()
+        portal_url = portal.absolute_url()
+        return url[len(portal_url) :] if url.startswith(portal_url) else url
+
+    def _ensure_lang_root(lang: str):
+        root = getattr(portal, lang, None)
+        if root:
+            return root
+        try:
+            root = api.content.create(container=portal, type="LRF", id=lang, title=lang)
+            return root
+        except Exception:
+            return None
+
+    def _ensure_container(target_root, path_segments):
+        container = target_root
+        for seg in path_segments:
+            existing = getattr(container, seg, None)
+            if existing is None:
+                existing = api.content.create(
+                    container=container, type="Folder", id=seg, title=seg
+                )
+            container = existing
+        return container
+
+    targets = [obj]
+    if mode == "subtree" and hasattr(obj, "objectValues"):
+        targets = []
+        stack = [obj]
+        while stack:
+            current = stack.pop()
+            targets.append(current)
+            children = getattr(current, "objectValues", lambda: [])()
+            for child in children:
+                stack.append(child)
+
+    created = 0
+    updated = 0
+    skipped = 0
+    failed = 0
+
+    target_root = _ensure_lang_root(target_lang)
+    if not target_root:
+        return {
+            "created": 0,
+            "updated": 0,
+            "skipped": 0,
+            "failed": len(targets),
+            "details": [
+                {
+                    "source": _rel_path(obj),
+                    "target": None,
+                    "status": "failed",
+                    "error": f"Target language root {target_lang} missing",
+                }
+            ],
+            "source_language": source_lang,
+            "target_language": target_lang,
+            "mode": mode,
+        }
+
+    for item in targets:
+        rel = _rel_path(item)
+        rel_parts = [p for p in rel.split("/") if p]
+        if rel_parts and rel_parts[0] == source_lang:
+            rel_parts = rel_parts[1:]
+
+        existing = None
+        status = "updated"
+
+        manager = None
+        try:
+            from plone.app.multilingual.interfaces import ITranslationManager  # type: ignore
+
+            manager = ITranslationManager(item)
+        except Exception:
+            manager = None
+
+        if manager is not None:
+            try:
+                translations = manager.get_translations() or {}
+                existing = translations.get(target_lang)
+                if existing and not overwrite:
+                    details.append(
+                        {
+                            "source": _rel_path(item),
+                            "target": _rel_path(existing),
+                            "status": "skip",
+                            "note": "Translation exists; overwrite disabled",
+                        }
+                    )
+                    skipped += 1
+                    continue
+                if existing is None:
+                    existing = manager.add_translation(target_lang)
+                    status = "created"
+                    created += 1
+                else:
+                    status = "updated"
+                    updated += 1
+            except Exception:
+                existing = None
+
+        if existing is None:
+            container = target_root
+            if len(rel_parts) > 1:
+                try:
+                    container = _ensure_container(target_root, rel_parts[:-1])
+                except Exception as exc:
+                    details.append(
+                        {
+                            "source": _rel_path(item),
+                            "target": None,
+                            "status": "failed",
+                            "error": f"Could not ensure container: {exc}",
+                        }
+                    )
+                    failed += 1
+                    continue
+
+            target_id = rel_parts[-1] if rel_parts else item.getId()
+            existing = getattr(container, target_id, None)
+
+            if existing and not overwrite:
+                details.append(
+                    {
+                        "source": _rel_path(item),
+                        "target": _rel_path(existing),
+                        "status": "skip",
+                        "note": "Translation exists; overwrite disabled",
+                    }
+                )
+                skipped += 1
+                continue
+
+            if existing is None:
+                try:
+                    existing = api.content.copy(source=item, target=container, id=target_id)
+                    created += 1
+                    status = "created"
+                except Exception:
+                    try:
+                        existing = api.content.create(
+                            container=container,
+                            type=item.portal_type,
+                            id=target_id,
+                            title=getattr(item, "Title", lambda: "")(),
+                        )
+                        created += 1
+                        status = "created"
+                    except Exception as exc:
+                        details.append(
+                            {
+                                "source": _rel_path(item),
+                                "target": None,
+                                "status": "failed",
+                                "error": str(exc),
+                            }
+                        )
+                        failed += 1
+                        continue
+            else:
+                status = "updated"
+                updated += 1
+
+        try:
+            if hasattr(existing, "setTitle"):
+                existing.setTitle(
+                    _translate_text(
+                        translator, getattr(item, "Title", lambda: "")(), source_lang, target_lang
+                    )
+                )
+            if hasattr(existing, "setDescription"):
+                existing.setDescription(
+                    _translate_text(
+                        translator,
+                        getattr(item, "Description", lambda: "")(),
+                        source_lang,
+                        target_lang,
+                    )
+                )
+            if hasattr(item, "blocks") and hasattr(item, "blocks_layout"):
+                import copy
+
+                blocks_copy = copy.deepcopy(getattr(item, "blocks", {}))
+                _translate_blocks(translator, blocks_copy, source_lang, target_lang)
+                existing.blocks = blocks_copy
+                existing.blocks_layout = copy.deepcopy(getattr(item, "blocks_layout", {}))
+            if hasattr(existing, "setLanguage"):
+                existing.setLanguage(target_lang)
+            existing.reindexObject()
+            logger.info(
+                "[KYRA AI TRANSLATE] applied %s -> %s status=%s overwrite=%s gateway=%s",
+                _rel_path(item),
+                _rel_path(existing),
+                status,
+                overwrite,
+                "yes" if gateway_available else "no",
+            )
+        except Exception as exc:
+            status = "failed"
+            failed += 1
+            details.append(
+                {
+                    "source": _rel_path(item),
+                    "target": _rel_path(existing),
+                    "status": status,
+                    "error": str(exc),
+                }
+            )
+            continue
+
+        # Link translations in both directions if possible
+        try:
+            from plone.app.multilingual.interfaces import ITranslationManager
+
+            mgr_source = ITranslationManager(item)
+            mgr_source.register_translation(target_lang, existing)
+            try:
+                mgr_target = ITranslationManager(existing)
+                mgr_target.register_translation(source_lang, item)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        note = (
+            "Translated content applied (gateway used)"
+            if gateway_available
+            else "Copied content (gateway unavailable)"
+        )
+        details.append(
+            {
+                "source": _rel_path(item),
+                "target": _rel_path(existing),
+                "status": status,
+                "note": note,
+            }
+        )
+
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "failed": failed,
+        "details": details,
+        "source_language": source_lang,
+        "target_language": target_lang,
+        "mode": mode,
+    }
 
 
 def _ensure_blocks_struct(obj):
@@ -1297,6 +1718,171 @@ def _ensure_blocks_struct(obj):
         layout["items"] = PersistentList(list(layout.get("items") or []))
 
     return blocks, layout
+
+
+def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: str) -> str:
+    if not isinstance(text, str) or not text.strip():
+        return text or ""
+    # If gateway credentials are missing, return the original text
+    if not (translator.gateway_url and translator._get_headers()):
+        return text
+
+    # First, try prompt-tool apply (gateway_url points to /prompts)
+    prompt_client = Prompts()
+    prompt_id = _get_cached_translate_prompt_id()
+    logger.info(
+        "[KYRA AI] Translate text start | prompt_id=%s gateway=%s",
+        prompt_id or "none",
+        translator.gateway_url,
+    )
+    prompt_payload = {
+        "name": "Kyra Translate",
+        "prompt": (
+            "You are a translation engine. Translate the user input into the target language. "
+            "The target language is provided inside the input, prefixed by 'TARGET: <lang>'. "
+            "Always translate into that target language, preserve meaning and inline formatting/HTML, "
+            "do not add explanations, and return only the translated text."
+        ),
+        "categories": ["Translation"],
+        "actionType": "replace",
+        "metadata": {"categories": ["Translation"], "action": "replace"},
+    }
+    def _apply_prompt(pid: str, txt: str, tgt: str) -> Optional[str]:
+        try:
+            enriched = f"TARGET: {tgt}\n{txt}"
+            resp = prompt_client.apply(pid, {"query": enriched, "input": enriched, "params": {"language": tgt}})
+            if isinstance(resp, dict):
+                if resp.get("error"):
+                    logger.warning("[KYRA AI] Translate prompt apply error: %s", resp.get("error"))
+                    return None
+                for key in ("response", "result", "content", "text", "output"):
+                    val = resp.get(key)
+                    if isinstance(val, str) and val.strip():
+                        logger.info("[KYRA AI] Translation prompt %s len=%s", key, len(val.strip()))
+                        return val.strip()
+                logger.warning("[KYRA AI] Translate prompt apply returned no text: %s", resp)
+                return None
+        except Exception as exc:
+            logger.warning("[KYRA AI] Translate prompt apply failed: %s", exc)
+            return None
+
+    translated = None
+    if prompt_id:
+        translated = _apply_prompt(prompt_id, text, target_lang)
+        if translated is None:
+            prompt_id = None
+
+    if prompt_id is None:
+        try:
+            created = prompt_client.create(prompt_payload)
+            new_id = created.get("id") or created.get("_id")
+            if new_id:
+                _set_cached_translate_prompt_id(new_id)
+                translated = _apply_prompt(new_id, text, target_lang)
+            else:
+                logger.warning("[KYRA AI] Translate prompt create returned no id: %s", created)
+        except Exception as exc:
+            logger.warning("[KYRA AI] Translate prompt create failed: %s", exc)
+            translated = None
+
+    if translated:
+        logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
+        return _strip_basic_html(translated)
+
+    # Fallback: try chat endpoint (may 404 on some gateways)
+    payload = {
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a translation engine. "
+                    f"Translate the user text from {source_lang or 'auto'} to {target_lang}. "
+                    "Preserve meaning and inline formatting/HTML, but do not add explanations. "
+                    "Return only the translated text."
+                ),
+            },
+            {"role": "user", "content": text},
+        ],
+        "context": {
+            "mode": "translation",
+            "source_language": source_lang or "",
+            "target_language": target_lang,
+        },
+        "params": {"language": target_lang},
+    }
+    try:
+        response = translator.send(payload)
+        if isinstance(response, dict):
+            if response.get("error"):
+                logger.warning(f"[KYRA AI] Translation gateway error: {response.get('error')}")
+                return text
+            msg = response.get("message")
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                if isinstance(content, str) and content.strip():
+                    logger.info("[KYRA AI] Translation message.content len=%s", len(content.strip()))
+                    return content.strip()
+            for key in ("result", "response", "content", "text", "output"):
+                value = response.get(key)
+                if isinstance(value, str) and value.strip():
+                    logger.info("[KYRA AI] Translation %s len=%s", key, len(value.strip()))
+                    return _strip_basic_html(value.strip())
+            # sometimes nested under "data"
+            data = response.get("data")
+            if isinstance(data, dict):
+                for key in ("content", "text", "output"):
+                    val = data.get(key)
+                    if isinstance(val, str) and val.strip():
+                        logger.info("[KYRA AI] Translation data.%s len=%s", key, len(val.strip()))
+                        return _strip_basic_html(val.strip())
+            logger.warning("[KYRA AI] Translation gateway empty response: %s", response)
+    except Exception as exc:
+        logger.warning("[KYRA AI] Translation failed, returning original text: %s", exc)
+        return text
+    return text
+
+
+def _strip_basic_html(value: str) -> str:
+    if not isinstance(value, str):
+        return ""
+    # Remove wrapping <p>...</p> and basic tags, keep inner text
+    cleaned = re.sub(r"^\\s*<p>(.*)</p>\\s*$", r"\\1", value.strip(), flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"</?(p|br|span|div|strong|em|b|i)>", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str, target_lang: str):
+    for block in blocks.values():
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("@type")
+        if btype in ("text",):
+            html = block.get("text") or ""
+            block["text"] = _translate_text(translator, html, source_lang, target_lang)
+        elif btype in ("slate",):
+            translated_plain = _translate_text(
+                translator, block.get("plaintext") or "", source_lang, target_lang
+            )
+            if translated_plain:
+                block["plaintext"] = translated_plain
+            value = block.get("value")
+            if isinstance(value, list):
+                for node in value:
+                    _translate_slate_node(translator, node, source_lang, target_lang)
+        elif btype == "html":
+            html = block.get("html") or ""
+            block["html"] = _translate_text(translator, html, source_lang, target_lang)
+
+
+def _translate_slate_node(translator: Chat, node: Any, source_lang: str, target_lang: str):
+    if not isinstance(node, dict):
+        return
+    if "text" in node and isinstance(node["text"], str):
+        node["text"] = _translate_text(translator, node["text"], source_lang, target_lang)
+    children = node.get("children")
+    if isinstance(children, list):
+        for child in children:
+            _translate_slate_node(translator, child, source_lang, target_lang)
 
 
 def _detect_text_block_type(blocks: Dict[str, Any]) -> str:
@@ -1521,13 +2107,16 @@ class AIActionsService(ServiceBase):
             raise BadRequest("JSON object expected")
 
         goal = data.get("goal") or ""
-        if not isinstance(goal, str) or not goal.strip():
+        translate_opts = data.get("translation") if isinstance(data.get("translation"), dict) else None
+        if not isinstance(goal, str):
+            goal = ""
+        if not goal.strip() and not translate_opts:
             raise BadRequest("Missing goal")
 
         target = _resolve_target(self.context, data)
         _ensure_editor(target)
 
-        actions = _derive_actions(goal, target, self.kyra)
+        actions = _derive_actions(goal, target, self.kyra, translate_opts=translate_opts)
         preview = _preview_from_actions(actions)
 
         plan_id = str(uuid.uuid4())
@@ -1538,6 +2127,7 @@ class AIActionsService(ServiceBase):
             "plan_id": plan_id,
             "actions": actions,
             "preview": preview,
+            "translation_report": _build_translation_stub(actions),
         }
 
     def _handle_apply(self):
@@ -1563,8 +2153,16 @@ class AIActionsService(ServiceBase):
         changed = _apply_actions(target, actions)
         log_ai_action(target, actions, plan_id=plan_id)
 
+        report = getattr(target, "_v_last_translation_report", None)
+        if hasattr(target, "__delattr__"):
+            try:
+                delattr(target, "_v_last_translation_report")
+            except Exception:
+                pass
+
         return {
             "result": "ok",
             "changed": changed,
             "reload": True,
+            "report": report,
         }
