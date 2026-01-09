@@ -1921,27 +1921,157 @@ def _is_boilerplate_translation(text: str) -> bool:
     )
 
 
+SKIP_TRANSLATION_FIELDS = {
+    "@type",
+    "type",
+    "url",
+    "href",
+    "src",
+    "target",
+    "uid",
+    "image_field",
+    "scale",
+    "size",
+    "align",
+    "align_text",
+    "className",
+    "gradient",
+    "pattern",
+    "columns",
+    "rows",
+    "value",  # slate handled separately
+    "children",  # handled via slate recursion
+    "blocks_layout",
+}
+
+BLOCK_TEXT_FIELDS = {
+    # Default Volto / custom blocks
+    "heading": ["heading"],
+    "gridBlock": ["title", "headline", "description", "text", "html"],
+    "columnsBlock": ["title", "description", "text", "html"],
+    "accordion": ["headline", "title", "text", "description", "subtitle", "html"],
+    "slider": ["title", "text", "description", "html"],
+    "@kitconcept/volto-columns-block": ["title", "description", "text", "html"],
+    "@kitconcept/volto-grid-block": ["title", "headline", "description", "text", "body"],
+    "@eeacms/volto-columns-block": ["title", "description", "text", "html"],
+    "@eeacms/volto-accordion-block": ["title", "text", "description", "subtitle", "html"],
+    "@kitconcept/volto-slider-block": ["title", "text", "description", "html"],
+    "@kitconcept/volto-carousel-block": ["title", "text", "description", "html"],
+    "@kitconcept/volto-heading-block": ["title", "text", "html"],
+    "@kitconcept/volto-highlight-block": ["title", "text", "description", "html"],
+    "@kitconcept/volto-introduction-block": ["title", "text", "description", "html"],
+    "@kitconcept/volto-button-block": ["title", "text"],
+    "@kitconcept/volto-light-theme": ["title", "text", "html"],
+    "@eeacms/volto-block-divider": ["title", "description"],
+}
+
+URL_PATTERN = re.compile(r"^(https?://|/|resolveuid|data:)", re.IGNORECASE)
+
+
+def _looks_like_url(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    return bool(URL_PATTERN.match(text.strip()))
+
+
+def _is_block_id(value: str) -> bool:
+    return bool(re.match(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", value, re.IGNORECASE))
+
+
+def _translate_block_strings(
+    translator: Chat,
+    block: Dict[str, Any],
+    source_lang: str,
+    target_lang: str,
+    parent_key: Optional[str] = None,
+):
+    for key, value in list(block.items()):
+        if key in SKIP_TRANSLATION_FIELDS:
+            continue
+        if isinstance(value, str):
+            if value.strip() and not _looks_like_url(value):
+                block[key] = _translate_text(translator, value, source_lang, target_lang)
+        elif isinstance(value, dict):
+            # If this is a nested block (has @type), translate it as a block
+            if value.get("@type"):
+                _translate_block_dict(translator, value, source_lang, target_lang)
+            else:
+                _translate_block_strings(translator, value, source_lang, target_lang, key)
+        elif isinstance(value, list):
+            _translate_block_list(translator, value, source_lang, target_lang, key)
+
+
+def _translate_block_list(
+    translator: Chat,
+    lst: List[Any],
+    source_lang: str,
+    target_lang: str,
+    parent_key: Optional[str] = None,
+):
+    if parent_key == "items" and all(isinstance(item, str) and _is_block_id(item) for item in lst):
+        return
+    for idx, item in enumerate(lst):
+        if isinstance(item, str):
+            if item.strip() and not _looks_like_url(item):
+                lst[idx] = _translate_text(translator, item, source_lang, target_lang)
+        elif isinstance(item, dict):
+            if item.get("@type"):
+                _translate_block_dict(translator, item, source_lang, target_lang)
+            else:
+                _translate_block_strings(translator, item, source_lang, target_lang, parent_key)
+
+
+def _translate_block_special_fields(
+    translator: Chat,
+    block: Dict[str, Any],
+    source_lang: str,
+    target_lang: str,
+):
+    block_type = block.get("@type", "")
+    fields = BLOCK_TEXT_FIELDS.get(block_type, [])
+    for key in fields:
+        value = block.get(key)
+        if isinstance(value, str) and value.strip() and not _looks_like_url(value):
+            block[key] = _translate_text(translator, value, source_lang, target_lang)
+        elif isinstance(value, dict):
+            _translate_block_strings(translator, value, source_lang, target_lang)
+        elif isinstance(value, list):
+            _translate_block_list(translator, value, source_lang, target_lang, key)
+
+
+def _translate_block_dict(
+    translator: Chat,
+    block: Dict[str, Any],
+    source_lang: str,
+    target_lang: str,
+):
+    if not isinstance(block, dict):
+        return
+    btype = block.get("@type")
+    if btype in ("text",):
+        html = block.get("text") or ""
+        block["text"] = _translate_text(translator, html, source_lang, target_lang)
+    elif btype in ("slate",):
+        translated_plain = _translate_text(
+            translator, block.get("plaintext") or "", source_lang, target_lang
+        )
+        if translated_plain:
+            block["plaintext"] = translated_plain
+        value = block.get("value")
+        if isinstance(value, list):
+            for node in value:
+                _translate_slate_node(translator, node, source_lang, target_lang)
+    elif btype == "html":
+        html = block.get("html") or ""
+        block["html"] = _translate_text(translator, html, source_lang, target_lang)
+
+    _translate_block_strings(translator, block, source_lang, target_lang)
+    _translate_block_special_fields(translator, block, source_lang, target_lang)
+
+
 def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str, target_lang: str):
     for block in blocks.values():
-        if not isinstance(block, dict):
-            continue
-        btype = block.get("@type")
-        if btype in ("text",):
-            html = block.get("text") or ""
-            block["text"] = _translate_text(translator, html, source_lang, target_lang)
-        elif btype in ("slate",):
-            translated_plain = _translate_text(
-                translator, block.get("plaintext") or "", source_lang, target_lang
-            )
-            if translated_plain:
-                block["plaintext"] = translated_plain
-            value = block.get("value")
-            if isinstance(value, list):
-                for node in value:
-                    _translate_slate_node(translator, node, source_lang, target_lang)
-        elif btype == "html":
-            html = block.get("html") or ""
-            block["html"] = _translate_text(translator, html, source_lang, target_lang)
+        _translate_block_dict(translator, block, source_lang, target_lang)
 
 
 def _translate_slate_node(translator: Chat, node: Any, source_lang: str, target_lang: str):
