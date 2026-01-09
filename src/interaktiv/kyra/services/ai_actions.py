@@ -1924,6 +1924,7 @@ def _is_boilerplate_translation(text: str) -> bool:
 SKIP_TRANSLATION_FIELDS = {
     "@type",
     "type",
+    "plaintext",
     "url",
     "href",
     "src",
@@ -1942,6 +1943,10 @@ SKIP_TRANSLATION_FIELDS = {
     "value",  # slate handled separately
     "children",  # handled via slate recursion
     "blocks_layout",
+    # layout / sizing keys that should never be translated or altered
+    "gridCols",
+    "gridSize",
+    "grid",
 }
 
 BLOCK_TEXT_FIELDS = {
@@ -2052,11 +2057,6 @@ def _translate_block_dict(
         html = block.get("text") or ""
         block["text"] = _translate_text(translator, html, source_lang, target_lang)
     elif btype in ("slate",):
-        translated_plain = _translate_text(
-            translator, block.get("plaintext") or "", source_lang, target_lang
-        )
-        if translated_plain:
-            block["plaintext"] = translated_plain
         value = block.get("value")
         if isinstance(value, list):
             for node in value:
