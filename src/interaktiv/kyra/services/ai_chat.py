@@ -219,6 +219,7 @@ def _apply_prompt_fallback(
 
 MAX_DOC_MESSAGE_TEXT = 1200
 CITATION_SNIPPET_LIMIT = 140
+UPLOAD_SNIPPET_LIMIT = 8000
 
 
 def _is_not_found_error(message: str) -> bool:
@@ -346,9 +347,10 @@ def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> st
         return _missing_page_content_message()
 
     if _detect_upload_intent(last_query) and upload_docs:
-        lines = ["Uploaded files summary:"]
+        lines = ["**Uploaded files summary:**"]
         for doc in upload_docs[:2]:
-            snippet = _format_citation_snippet(doc)
+            snippet = _format_upload_snippet(doc)
+            lines.append("")
             lines.append(f"- {doc.get('title')}: {snippet}")
         return "\n".join(lines)
 
@@ -376,6 +378,18 @@ def _format_citation_snippet(doc: Dict[str, Any]) -> str:
     snippet = snippet.strip()
     if len(snippet) > CITATION_SNIPPET_LIMIT:
         snippet = snippet[:CITATION_SNIPPET_LIMIT].rsplit(" ", 1)[0] + "…"
+    return snippet
+
+
+def _format_upload_snippet(doc: Dict[str, Any]) -> str:
+    """Return upload text without the aggressive ellipsis we use for citations."""
+    snippet = clean_text(doc.get("text") or "")
+    if not snippet:
+        snippet = clean_text(doc.get("title") or doc.get("url") or "")
+    snippet = snippet.strip()
+    if len(snippet) > UPLOAD_SNIPPET_LIMIT:
+        # Keep it long but avoid the trailing ellipsis that confused users
+        snippet = snippet[:UPLOAD_SNIPPET_LIMIT]
     return snippet
 
 
@@ -905,10 +919,15 @@ class AIChatService(ServiceBase):
                 return text_answer
         if _detect_upload_intent(last_query) and context_docs.get("upload_docs"):
             upload_docs = context_docs.get("upload_docs") or []
-            lines = ["Uploaded files:"]
+            # Use markdown-style bold so it renders in plain-text UIs too
+            lines = ["Uploaded files:", ""]
             for doc in upload_docs[:3]:
-                snippet = _format_citation_snippet(doc)
-                lines.append(f"- {doc.get('title')}: {snippet}")
+                snippet = _format_upload_snippet(doc)
+                title = doc.get("title") or "Attachment"
+                # Show filename on its own line, then the extracted text on the next line
+                lines.append(f"- {title}:")
+                lines.append(snippet)
+                lines.append("")
             return {
                 "message": {"role": "assistant", "content": "\n".join(lines)},
                 "citations": _build_citations(context_docs),
