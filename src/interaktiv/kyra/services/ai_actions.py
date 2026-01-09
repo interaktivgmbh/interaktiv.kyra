@@ -1,3 +1,4 @@
+import copy
 import json
 import re
 import uuid
@@ -1663,12 +1664,29 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     )
                 )
             if hasattr(item, "blocks") and hasattr(item, "blocks_layout"):
-                import copy
-
                 blocks_copy = copy.deepcopy(getattr(item, "blocks", {}))
                 _translate_blocks(translator, blocks_copy, source_lang, target_lang)
                 existing.blocks = blocks_copy
                 existing.blocks_layout = copy.deepcopy(getattr(item, "blocks_layout", {}))
+            # carry over preview image fields when present
+            for preview_field in ("preview_image", "preview_image_link"):
+                if hasattr(item, preview_field):
+                    try:
+                        src_val = getattr(item, preview_field, None)
+                    except Exception:
+                        src_val = None
+                    if src_val:
+                        try:
+                            setattr(existing, preview_field, copy.deepcopy(src_val))
+                        except Exception:
+                            try:
+                                setattr(existing, preview_field, src_val)
+                            except Exception:
+                                logger.debug(
+                                    "[KYRA AI TRANSLATE] could not copy %s for %s",
+                                    preview_field,
+                                    _rel_path(item),
+                                )
             if hasattr(existing, "setLanguage"):
                 existing.setLanguage(target_lang)
             existing.reindexObject()
