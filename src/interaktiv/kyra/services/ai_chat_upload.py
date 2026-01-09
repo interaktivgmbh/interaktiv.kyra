@@ -129,20 +129,18 @@ def _strip_rtf_header(cleaned: str) -> str:
 
 def _strip_rtf_style_prefix(value: str) -> str:
     tokens = value.split()
-    prefix_tokens = {
-        "dirnatural",
-        "tightenfactor0",
-        "f0",
-        "fs24",
-        "cf0",
-        "co",
-        "cocoatextscaling0",
-        "cocoaplatform0",
 
-    }
-    while tokens and tokens[0].lower() in prefix_tokens:
-        tokens.pop(0)
-    return " ".join(tokens).strip()
+    style_re = re.compile(
+        r"^(deftab|pard|li|fi|ri|sa|sb|sl|hyphenfactor|tightenfactor|f|fs|cf|co|b|i|u|expnd|expndtw|kerning|outl|strokewidth|strokec|cocoatextscaling|cocoaplatform|d)[-]?\d*$",
+        re.IGNORECASE,
+    )
+
+    def _is_style_token(tok: str) -> bool:
+        cleaned = tok.strip().lstrip("\\").strip("{};")
+        return bool(style_re.match(cleaned))
+
+    filtered = [tok for tok in tokens if not _is_style_token(tok)]
+    return " ".join(filtered).strip()
 
 
 def _clean_rtf_body(raw: str) -> str:
