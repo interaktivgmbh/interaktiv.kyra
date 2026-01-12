@@ -1691,6 +1691,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             blocks_copy = None
             futures: List[Tuple[str, Any, Any]] = []
             max_workers = max(1, _max_translation_concurrency())
+            translated_title_value: Optional[str] = None
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 portal = api.portal.get()
                 if hasattr(existing, "setTitle"):
@@ -1755,13 +1756,24 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         continue
                     if kind in ("title", "description") and callable(setter):
                         try:
-                            setter(result if isinstance(result, str) else "")
+                            value_to_set = result if isinstance(result, str) else ""
+                            setter(value_to_set)
+                            if kind == "title":
+                                translated_title_value = value_to_set
                         except Exception:
                             logger.debug("[KYRA AI] could not apply %s", kind)
 
             if blocks_copy is not None:
                 existing.blocks = blocks_copy
                 existing.blocks_layout = copy.deepcopy(getattr(item, "blocks_layout", {}))
+            if translated_title_value:
+                try:
+                    new_id = idnormalizer.normalize(translated_title_value)
+                    current_id = getattr(existing, "getId", lambda: None)()
+                    if new_id and current_id and new_id != current_id:
+                        api.content.rename(obj=existing, new_id=new_id, safe_id=True)
+                except Exception:
+                    logger.debug("[KYRA AI] could not rename translation to match translated title")
             # carry over preview image fields when present
             for preview_field in ("preview_image", "preview_image_link"):
                 if hasattr(item, preview_field):
