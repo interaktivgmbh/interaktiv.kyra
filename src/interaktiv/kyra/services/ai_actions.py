@@ -1689,6 +1689,8 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
 
         try:
             blocks_copy = None
+            source_title = getattr(item, "Title", lambda: "")()
+            source_description = getattr(item, "Description", lambda: "")()
             futures: List[Tuple[str, Any, Any]] = []
             max_workers = max(1, _max_translation_concurrency())
             translated_title_value: Optional[str] = None
@@ -1703,10 +1705,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     translator,
                                     txt,
                                     source_lang,
-                                    target_lang,
-                                    True,
-                                ))[1],
-                                getattr(item, "Title", lambda: "")(),
+                                target_lang,
+                                True,
+                                True,
+                            ))[1],
+                                source_title,
                             ),
                             existing.setTitle,
                         )
@@ -1719,11 +1722,12 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                 lambda txt: (setSite(portal), _translate_text_with_retry(
                                     translator,
                                     txt,
-                                    source_lang,
-                                    target_lang,
-                                    True,
-                                ))[1],
-                                getattr(item, "Description", lambda: "")(),
+                                source_lang,
+                                target_lang,
+                                True,
+                                True,
+                            ))[1],
+                                source_description,
                             ),
                             existing.setDescription,
                         )
@@ -1756,7 +1760,8 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         continue
                     if kind in ("title", "description") and callable(setter):
                         try:
-                            value_to_set = result if isinstance(result, str) else ""
+                            original = source_title if kind == "title" else source_description
+                            value_to_set = result if isinstance(result, str) and result.strip() else original
                             setter(value_to_set)
                             if kind == "title":
                                 translated_title_value = value_to_set
@@ -1889,13 +1894,21 @@ def _translate_text_with_retry(
     source_lang: str,
     target_lang: str,
     use_prompt: bool = True,
+    strip_html: bool = True,
 ) -> str:
     retries = _translation_retries()
     timeout = _translation_timeout_seconds()
     last_exc: Optional[Exception] = None
     for attempt in range(retries + 1):
         try:
-            return _translate_text(translator, text, source_lang, target_lang, use_prompt=use_prompt)
+            return _translate_text(
+                translator,
+                text,
+                source_lang,
+                target_lang,
+                use_prompt=use_prompt,
+                strip_html=strip_html,
+            )
         except Exception as exc:
             last_exc = exc
             delay = TRANSLATION_BACKOFF_BASE * (TRANSLATION_BACKOFF_FACTOR ** attempt)
@@ -1919,6 +1932,7 @@ def _translate_text(
     source_lang: str,
     target_lang: str,
     use_prompt: bool = True,
+    strip_html: bool = True,
 ) -> str:
     if not isinstance(text, str) or not text.strip():
         return text or ""
@@ -1926,7 +1940,7 @@ def _translate_text(
     if not (translator.gateway_url and translator._get_headers()):
         return text
 
-    # strip HTML before sending
+    # strip HTML before sending (model still instructed to preserve formatting)
     text_for_translation = _html_to_text(text).strip() or text
 
     if use_prompt:
@@ -1989,8 +2003,8 @@ def _translate_text(
 
         if translated:
             logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
-            cleaned = _strip_basic_html(translated)
-            if _is_boilerplate_translation(cleaned):
+            cleaned = _strip_basic_html(translated) if strip_html else translated
+            if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
                 logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                 return text_for_translation
             return cleaned
@@ -2027,8 +2041,8 @@ def _translate_text(
                 content = msg.get("content")
                 if isinstance(content, str) and content.strip():
                     logger.info("[KYRA AI] Translation message.content len=%s", len(content.strip()))
-                    cleaned = _strip_basic_html(content.strip())
-                    if _is_boilerplate_translation(cleaned):
+                    cleaned = _strip_basic_html(content.strip()) if strip_html else content.strip()
+                    if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
                         logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                         return text_for_translation
                     return cleaned
@@ -2036,8 +2050,8 @@ def _translate_text(
                 value = response.get(key)
                 if isinstance(value, str) and value.strip():
                     logger.info("[KYRA AI] Translation %s len=%s", key, len(value.strip()))
-                    cleaned = _strip_basic_html(value.strip())
-                    if _is_boilerplate_translation(cleaned):
+                    cleaned = _strip_basic_html(value.strip()) if strip_html else value.strip()
+                    if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
                         logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                         return text_for_translation
                     return cleaned
@@ -2048,8 +2062,8 @@ def _translate_text(
                     val = data.get(key)
                     if isinstance(val, str) and val.strip():
                         logger.info("[KYRA AI] Translation data.%s len=%s", key, len(val.strip()))
-                        cleaned = _strip_basic_html(val.strip())
-                        if _is_boilerplate_translation(cleaned):
+                        cleaned = _strip_basic_html(val.strip()) if strip_html else val.strip()
+                        if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
                             logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                             return text_for_translation
                         return cleaned
@@ -2231,7 +2245,7 @@ def _translate_block_dict(
                 _translate_slate_node(translator, node, source_lang, target_lang)
     elif btype == "html":
         html = block.get("html") or ""
-        block["html"] = _translate_text(translator, html, source_lang, target_lang)
+        block["html"] = _translate_text(translator, html, source_lang, target_lang, strip_html=False)
 
     _translate_block_strings(translator, block, source_lang, target_lang)
     _translate_block_special_fields(translator, block, source_lang, target_lang)
