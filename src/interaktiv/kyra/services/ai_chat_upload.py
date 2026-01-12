@@ -27,7 +27,6 @@ def _normalize_extracted_text(value: str) -> str:
     """Normalize common OCR artifacts and bullet markers."""
     if not isinstance(value, str):
         return ""
-    # Keep ß/umlauts intact; only remove obvious artifacts
     replacements = {
         "•": "-",
         "·": "-",
@@ -91,7 +90,6 @@ def _looks_like_rtf_header_line(line: str) -> bool:
     matches = [
         token for token in tokens if header_tokens.match(token.lower())
     ]
-    # if all tokens are header-like and there are at least 2 of them, treat as header
     return len(tokens) > 0 and len(matches) == len(tokens)
 
 
@@ -111,7 +109,6 @@ def _strip_rtf_header(cleaned: str) -> str:
         match = re.search(r"viewkind0", candidate, re.IGNORECASE)
         if match:
             candidate = candidate[match.end():].strip()
-    # drop lines that still look like header tokens at start
     human_lines = []
     started = False
     for line in candidate.splitlines():
@@ -177,7 +174,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
 
     # RTF extraction
     if filename and filename.lower().endswith(".rtf"):
-        # Prefer striprtf to preserve headings and blank lines
         try:
             from striprtf.striprtf import rtf_to_text  # type: ignore
 
@@ -189,7 +185,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         except Exception:
             pass
 
-        # Manual fallback: light cleanup without aggressive header stripping
         try:
             raw = data.decode("utf-8", errors="ignore")
             raw = raw.replace("\\par", "\n").replace("\\line", "\n")
@@ -214,7 +209,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         # PDF extraction: try pdfminer, PyPDF2, then OCR
     if "pdf" in ctype:
         extracted = ""
-        # pdftotext (command line) early fallback if available
         try:
             pdftotext_bin = shutil.which("pdftotext") or "/opt/homebrew/bin/pdftotext"
             if pdftotext_bin and os.path.exists(pdftotext_bin):
@@ -234,7 +228,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
                         return text
         except Exception as exc:
             logger.debug("PDF pdftotext extraction failed: %s", exc)
-        # pdfminer first
         try:
             from pdfminer.high_level import extract_text  # type: ignore
 
@@ -246,7 +239,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         except Exception as exc:
             logger.debug("PDF pdfminer extraction failed: %s", exc)
 
-        # PyPDF2 fallback
         try:
             import PyPDF2  # type: ignore
 
@@ -287,14 +279,14 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         except Exception as exc:
             logger.debug("PDF OCR failed: %s", exc)
 
-        # CLI OCR fallback: pdftoppm + tesseract
         try:
             pdftoppm_bin = (
                 shutil.which("pdftoppm")
                 or "/opt/homebrew/bin/pdftoppm"
                 or "/opt/homebrew/opt/poppler/bin/pdftoppm"
             )
-            tesseract_bin = os.environ.get("TESSERACT_PATH") or shutil.which("tesseract") or "/opt/homebrew/bin/tesseract"
+            tesseract_bin = os.environ.get("TESSERACT_PATH") or shutil.which(
+                "tesseract") or "/opt/homebrew/bin/tesseract"
             ocr_lang = os.environ.get("TESSERACT_LANG", "deu+eng")
             if pdftoppm_bin and os.path.exists(pdftoppm_bin) and tesseract_bin and os.path.exists(tesseract_bin):
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -310,7 +302,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
                     )
                     img_path = f"{out_prefix}.png"
                     if os.path.exists(img_path):
-                        # Prefer python OCR if available, else CLI tesseract
                         try:
                             _set_tesseract_path()
                             import pytesseract  # type: ignore
@@ -322,7 +313,8 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
                             text = pytesseract.image_to_string(img, lang=ocr_lang)
                             cleaned = _clean_text(text)
                             if cleaned:
-                                logger.info("PDF OCR via pdftoppm + pytesseract (%s chars): %.200s", len(cleaned), cleaned)
+                                logger.info("PDF OCR via pdftoppm + pytesseract (%s chars): %.200s", len(cleaned),
+                                            cleaned)
                                 return cleaned
                         except Exception:
                             pass
@@ -340,7 +332,8 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
                                     cleaned = _clean_text(text)
                                     if cleaned:
                                         logger.info(
-                                            "PDF OCR via pdftoppm + tesseract CLI (%s chars): %.200s", len(cleaned), cleaned
+                                            "PDF OCR via pdftoppm + tesseract CLI (%s chars): %.200s", len(cleaned),
+                                            cleaned
                                         )
                                         return cleaned
                         except Exception as exc:
@@ -366,7 +359,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
                 return cleaned
         except Exception as exc:
             logger.debug("Image OCR failed: %s", exc)
-        # fallback to CLI tesseract if available
         try:
             tesseract_bin = os.environ.get("TESSERACT_PATH") or shutil.which("tesseract")
             ocr_lang = os.environ.get("TESSERACT_LANG", "deu+eng")

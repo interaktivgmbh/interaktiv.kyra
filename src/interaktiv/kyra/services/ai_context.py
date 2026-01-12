@@ -108,7 +108,7 @@ def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
                         "attribution": strip_html(attribution) if isinstance(attribution, str) else "",
                     }
                 )
-        # Slate quote block (common pattern)
+        # Slate quote block
         slate_value = block.get("value")
         if isinstance(slate_value, dict):
             data = slate_value.get("data") or {}
@@ -132,7 +132,6 @@ def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
         if "children" in block:
             slate_text = _flatten_slate_children(block.get("children"))
             if slate_text:
-                # Always include in page text parts
                 parts.append(strip_html(slate_text))
                 if "quote" in (block.get("@type") or "").lower():
                     quotes.append({"quote": strip_html(slate_text), "attribution": ""})
@@ -414,7 +413,6 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
                 )
 
     site_docs = collect_site_documents(page_doc)
-    # Prioritize uploads right after the page so they land in the first context docs
     documents = [page_doc] + upload_docs + site_docs + related_docs
 
     return {

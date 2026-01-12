@@ -91,7 +91,6 @@ class AIAssistantRun(Service):
 
         temp_prompt_id = None
         if isinstance(gw_data, dict) and gw_data.get("error"):
-            # Create a temporary prompt in the gateway, apply, then delete to avoid polluting prompt manager.
             prompt_text = prompt.get("text") or prompt.get("prompt") or ""
             if prompt_text:
                 created = kyra.prompts.create(_build_prompt_payload(prompt))

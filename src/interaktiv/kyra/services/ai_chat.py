@@ -101,7 +101,7 @@ def _resolve_context_from_payload(data: Dict[str, Any]):
         portal = api.portal.get()
         portal_url = portal.absolute_url()
         if url.startswith("http") and url.startswith(portal_url):
-            url = url[len(portal_url) :]
+            url = url[len(portal_url):]
         if url.startswith("/"):
             return api.content.get(path=url.lstrip("/"))
 
@@ -326,7 +326,6 @@ def _summarize_text(text: str, max_sentences: int = 6, max_chars: int = 800) -> 
     if not selected:
         return cleaned
 
-    # If only one long sentence, return it without bullets
     if len(selected) == 1:
         return selected[0]
 
@@ -431,6 +430,7 @@ def _site_only_response(
         "used_context": _build_used_context(context_docs),
     }
 
+
 def _is_invalid_uuid_error_response(response: Any) -> bool:
     if not isinstance(response, dict):
         return False
@@ -461,7 +461,8 @@ def _is_unusable_gateway_answer(text: str) -> bool:
         return True
     if "maintaining proper tinymce html formatting" in lowered:
         return True
-    if lowered.strip() in ("please summarize the content of this page.", "please summarize the page content clearly and concisely."):
+    if lowered.strip() in ("please summarize the content of this page.",
+                           "please summarize the page content clearly and concisely."):
         return True
     if "please summarize" in lowered and "page" in lowered:
         return True
@@ -495,7 +496,6 @@ def _is_grounded_answer(text: str, context_docs: Dict[str, Any]) -> bool:
 
     page_text = (page_doc.get("text") or "").lower()
     if page_text:
-        # Token overlap heuristic
         import re
 
         answer_tokens = {t for t in re.split(r"[^a-z0-9äöüß]+", lowered) if len(t) >= 4}
@@ -783,7 +783,7 @@ def _sse_event(event: str, payload: Any) -> str:
 def _chunk_text(text: str, size: int = 32) -> Iterable[str]:
     if not text:
         return []
-    return [text[i : i + size] for i in range(0, len(text), size)]
+    return [text[i: i + size] for i in range(0, len(text), size)]
 
 
 def _parse_gateway_stream_payload(
@@ -1098,7 +1098,6 @@ class AIChatService(ServiceBase):
             )
             return
 
-        # Quick intent handlers (no external call)
         if _detect_site_title_intent(last_query) or _detect_page_title_intent(last_query):
             page_doc = context_docs.get("page_doc") or {}
             if _detect_site_title_intent(last_query):
@@ -1267,8 +1266,8 @@ class AIChatService(ServiceBase):
 
             if event_type == "citations":
                 citations = (
-                    payload.get("citations") if isinstance(payload, dict) else payload
-                ) or []
+                                payload.get("citations") if isinstance(payload, dict) else payload
+                            ) or []
                 yield _sse_event("citations", {"citations": citations})
                 continue
 
