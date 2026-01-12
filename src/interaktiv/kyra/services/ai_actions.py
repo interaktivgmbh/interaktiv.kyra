@@ -1,9 +1,13 @@
 import copy
 import json
+import os
+import random
 import re
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from AccessControl import Unauthorized
 from interaktiv.kyra import logger
@@ -19,10 +23,16 @@ from plone.base.interfaces import IPloneSiteRoot
 from plone.restapi.deserializer import json_body
 from zExceptions import BadRequest
 from zope.annotation.interfaces import IAnnotations
+from zope.component.hooks import setSite
 from zope.interface import implementer
 from zope.publisher.interfaces import IPublishTraverse
 
 PLAN_STORAGE_KEY = "interaktiv.kyra.ai_actions_plans"
+TRANSLATION_MAX_CONCURRENCY_DEFAULT = 16
+TRANSLATION_TIMEOUT_DEFAULT = 60
+TRANSLATION_RETRIES_DEFAULT = 2
+TRANSLATION_BACKOFF_BASE = 0.5
+TRANSLATION_BACKOFF_FACTOR = 2.0
 ALLOWLIST = {
     "update_title",
     "update_description",
@@ -39,10 +49,40 @@ ALLOWLIST = {
 PLAN_PROMPT_ID = "kyra-actions-plan"
 PLAN_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_actions_plan_prompt_id_v3"
 TRANSLATE_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_translate_prompt_id_v1"
+TRANSLATION_MAX_CONCURRENCY_DEFAULT = 16
+TRANSLATION_TIMEOUT_DEFAULT = 60
+TRANSLATION_RETRIES_DEFAULT = 2
+TRANSLATION_BACKOFF_BASE = 0.5
+TRANSLATION_BACKOFF_FACTOR = 2.0
+TRANSLATION_MAX_CONCURRENCY_DEFAULT = 16
+TRANSLATION_TIMEOUT_DEFAULT = 60
+TRANSLATION_RETRIES_DEFAULT = 2
+TRANSLATION_BACKOFF_BASE = 0.5
+TRANSLATION_BACKOFF_FACTOR = 2.0
 
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{32,36}$")
 RESOLVEUID_RE = re.compile(r"resolveuid/([0-9a-fA-F-]{32,36})")
 IMAGES_SCALE_RE = re.compile(r"@@images/([^/]+)/([^/?#]+)")
+
+
+def _get_int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, "").strip())
+        return value if value > 0 else default
+    except Exception:
+        return default
+
+
+def _max_translation_concurrency() -> int:
+    return _get_int_env("KYRA_TRANSLATE_MAX_CONCURRENCY", TRANSLATION_MAX_CONCURRENCY_DEFAULT)
+
+
+def _translation_timeout_seconds() -> int:
+    return _get_int_env("KYRA_TRANSLATE_TIMEOUT", TRANSLATION_TIMEOUT_DEFAULT)
+
+
+def _translation_retries() -> int:
+    return _get_int_env("KYRA_TRANSLATE_RETRIES", TRANSLATION_RETRIES_DEFAULT)
 
 
 def _extract_value_after(label: str, text: str) -> Optional[str]:
@@ -1648,24 +1688,78 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         try:
-            if hasattr(existing, "setTitle"):
-                existing.setTitle(
-                    _translate_text(
-                        translator, getattr(item, "Title", lambda: "")(), source_lang, target_lang
+            blocks_copy = None
+            futures: List[Tuple[str, Any, Any]] = []
+            max_workers = max(1, _max_translation_concurrency())
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                portal = api.portal.get()
+                if hasattr(existing, "setTitle"):
+                    futures.append(
+                        (
+                            "title",
+                            executor.submit(
+                                lambda txt: (setSite(portal), _translate_text_with_retry(
+                                    translator,
+                                    txt,
+                                    source_lang,
+                                    target_lang,
+                                    True,
+                                ))[1],
+                                getattr(item, "Title", lambda: "")(),
+                            ),
+                            existing.setTitle,
+                        )
                     )
-                )
-            if hasattr(existing, "setDescription"):
-                existing.setDescription(
-                    _translate_text(
-                        translator,
-                        getattr(item, "Description", lambda: "")(),
-                        source_lang,
-                        target_lang,
+                if hasattr(existing, "setDescription"):
+                    futures.append(
+                        (
+                            "description",
+                            executor.submit(
+                                lambda txt: (setSite(portal), _translate_text_with_retry(
+                                    translator,
+                                    txt,
+                                    source_lang,
+                                    target_lang,
+                                    True,
+                                ))[1],
+                                getattr(item, "Description", lambda: "")(),
+                            ),
+                            existing.setDescription,
+                        )
                     )
-                )
-            if hasattr(item, "blocks") and hasattr(item, "blocks_layout"):
-                blocks_copy = copy.deepcopy(getattr(item, "blocks", {}))
-                _translate_blocks(translator, blocks_copy, source_lang, target_lang)
+
+                if hasattr(item, "blocks") and hasattr(item, "blocks_layout"):
+                    blocks_copy = copy.deepcopy(getattr(item, "blocks", {}))
+                    for block in blocks_copy.values():
+                        futures.append(
+                            (
+                                "block",
+                                executor.submit(
+                                    lambda b: (setSite(portal), _translate_block_dict(
+                                        translator,
+                                        b,
+                                        source_lang,
+                                        target_lang,
+                                    ))[1],
+                                    block,
+                                ),
+                                None,
+                            )
+                        )
+
+                for kind, future, setter in futures:
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        logger.warning("[KYRA AI] translate task failed kind=%s error=%s", kind, exc)
+                        continue
+                    if kind in ("title", "description") and callable(setter):
+                        try:
+                            setter(result if isinstance(result, str) else "")
+                        except Exception:
+                            logger.debug("[KYRA AI] could not apply %s", kind)
+
+            if blocks_copy is not None:
                 existing.blocks = blocks_copy
                 existing.blocks_layout = copy.deepcopy(getattr(item, "blocks_layout", {}))
             # carry over preview image fields when present
@@ -1769,7 +1863,51 @@ def _ensure_blocks_struct(obj):
     return blocks, layout
 
 
-def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: str) -> str:
+def _clone_chat(translator: Chat) -> Chat:
+    worker = Chat()
+    worker.gateway_url = translator.gateway_url
+    worker.token = translator.token
+    worker.domain_id = getattr(translator, "domain_id", None)
+    return worker
+
+
+def _translate_text_with_retry(
+    translator: Chat,
+    text: str,
+    source_lang: str,
+    target_lang: str,
+    use_prompt: bool = True,
+) -> str:
+    retries = _translation_retries()
+    timeout = _translation_timeout_seconds()
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            return _translate_text(translator, text, source_lang, target_lang, use_prompt=use_prompt)
+        except Exception as exc:
+            last_exc = exc
+            delay = TRANSLATION_BACKOFF_BASE * (TRANSLATION_BACKOFF_FACTOR ** attempt)
+            delay = min(delay, timeout)
+            delay = delay + random.uniform(0, 0.25)
+            logger.warning(
+                "[KYRA AI] translate retry attempt=%s/%s delay=%.2fs error=%s",
+                attempt + 1,
+                retries,
+                delay,
+                exc,
+            )
+            time.sleep(delay)
+    logger.warning("[KYRA AI] translate failed after retries: %s", last_exc)
+    return text
+
+
+def _translate_text(
+    translator: Chat,
+    text: str,
+    source_lang: str,
+    target_lang: str,
+    use_prompt: bool = True,
+) -> str:
     if not isinstance(text, str) or not text.strip():
         return text or ""
     # If gateway credentials are missing, return the original text
@@ -1779,71 +1917,71 @@ def _translate_text(translator: Chat, text: str, source_lang: str, target_lang: 
     # strip HTML before sending
     text_for_translation = _html_to_text(text).strip() or text
 
-    # First, try prompt-tool apply (gateway_url points to /prompts)
-    prompt_client = Prompts()
-    prompt_id = _get_cached_translate_prompt_id()
-    logger.info(
-        "[KYRA AI] Translate text start | prompt_id=%s gateway=%s",
-        prompt_id or "none",
-        translator.gateway_url,
-    )
-    prompt_payload = {
-        "name": "Kyra Translate",
-        "prompt": (
-            "You are a translation engine. Translate the user input into the target language. "
-            "The target language is provided inside the input, prefixed by 'TARGET: <lang>'. "
-            "Always translate into that target language, preserve meaning and inline formatting/HTML, "
-            "do not add explanations, and return only the translated text."
-        ),
-        "categories": ["Translation"],
-        "actionType": "replace",
-        "metadata": {"categories": ["Translation"], "action": "replace"},
-    }
-    def _apply_prompt(pid: str, txt: str, tgt: str) -> Optional[str]:
-        try:
-            enriched = f"TARGET: {tgt}\n{text_for_translation}"
-            resp = prompt_client.apply(pid, {"query": enriched, "input": enriched, "params": {"language": tgt}})
-            if isinstance(resp, dict):
-                if resp.get("error"):
-                    logger.warning("[KYRA AI] Translate prompt apply error: %s", resp.get("error"))
+    if use_prompt:
+        prompt_client = Prompts()
+        prompt_id = _get_cached_translate_prompt_id()
+        logger.info(
+            "[KYRA AI] Translate text start | prompt_id=%s gateway=%s",
+            prompt_id or "none",
+            translator.gateway_url,
+        )
+        prompt_payload = {
+            "name": "Kyra Translate",
+            "prompt": (
+                "You are a translation engine. Translate the user input into the target language. "
+                "The target language is provided inside the input, prefixed by 'TARGET: <lang>'. "
+                "Always translate into that target language, preserve meaning and inline formatting/HTML, "
+                "do not add explanations, and return only the translated text."
+            ),
+            "categories": ["Translation"],
+            "actionType": "replace",
+            "metadata": {"categories": ["Translation"], "action": "replace"},
+        }
+        def _apply_prompt(pid: str, txt: str, tgt: str) -> Optional[str]:
+            try:
+                enriched = f"TARGET: {tgt}\n{text_for_translation}"
+                resp = prompt_client.apply(pid, {"query": enriched, "input": enriched, "params": {"language": tgt}})
+                if isinstance(resp, dict):
+                    if resp.get("error"):
+                        logger.warning("[KYRA AI] Translate prompt apply error: %s", resp.get("error"))
+                        return None
+                    for key in ("response", "result", "content", "text", "output"):
+                        val = resp.get(key)
+                        if isinstance(val, str) and val.strip():
+                            logger.info("[KYRA AI] Translation prompt %s len=%s", key, len(val.strip()))
+                            return val.strip()
+                    logger.warning("[KYRA AI] Translate prompt apply returned no text: %s", resp)
                     return None
-                for key in ("response", "result", "content", "text", "output"):
-                    val = resp.get(key)
-                    if isinstance(val, str) and val.strip():
-                        logger.info("[KYRA AI] Translation prompt %s len=%s", key, len(val.strip()))
-                        return val.strip()
-                logger.warning("[KYRA AI] Translate prompt apply returned no text: %s", resp)
+            except Exception as exc:
+                logger.warning("[KYRA AI] Translate prompt apply failed: %s", exc)
                 return None
-        except Exception as exc:
-            logger.warning("[KYRA AI] Translate prompt apply failed: %s", exc)
-            return None
 
-    translated = None
-    if prompt_id:
-        translated = _apply_prompt(prompt_id, text_for_translation, target_lang)
-        if translated is None:
-            prompt_id = None
+        translated = None
+        if prompt_id:
+            translated = _apply_prompt(prompt_id, text_for_translation, target_lang)
+            if translated is None:
+                prompt_id = None
 
-    if prompt_id is None:
-        try:
-            created = prompt_client.create(prompt_payload)
-            new_id = created.get("id") or created.get("_id")
-            if new_id:
-                _set_cached_translate_prompt_id(new_id)
-                translated = _apply_prompt(new_id, text_for_translation, target_lang)
-            else:
-                logger.warning("[KYRA AI] Translate prompt create returned no id: %s", created)
-        except Exception as exc:
-            logger.warning("[KYRA AI] Translate prompt create failed: %s", exc)
-            translated = None
+        if prompt_id is None:
+            try:
+                created = prompt_client.create(prompt_payload)
+                new_id = created.get("id") or created.get("_id")
+                if new_id:
+                    _set_cached_translate_prompt_id(new_id)
+                    translated = _apply_prompt(new_id, text_for_translation, target_lang)
+                else:
+                    logger.warning("[KYRA AI] Translate prompt create returned no id: %s", created)
+            except Exception as exc:
+                logger.warning("[KYRA AI] Translate prompt create failed: %s", exc)
+                translated = None
 
-    if translated:
-        logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
-        cleaned = _strip_basic_html(translated)
-        if _is_boilerplate_translation(cleaned):
-            logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
-            return text_for_translation
-        return cleaned
+        if translated:
+            logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
+            cleaned = _strip_basic_html(translated)
+            if _is_boilerplate_translation(cleaned):
+                logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
+                return text_for_translation
+            return cleaned
 
     # Fallback: try chat endpoint (may 404 on some gateways)
     payload = {
