@@ -67,6 +67,207 @@ def _flatten_slate_children(children: Any) -> str:
     return " ".join(parts)
 
 
+# Block types whose content is already captured via Title/Description
+_SKIP_BLOCK_TYPES = {"title", "description"}
+
+# Block types that are dynamic/runtime and have no static text
+_DYNAMIC_BLOCK_TYPES = {"listing", "search", "querystringSortOn", "maps"}
+
+
+def _extract_block_text(block: Dict[str, Any]) -> str:
+    """Extract meaningful text from a single Volto block, skipping metadata."""
+    if not isinstance(block, dict):
+        return str(block) if isinstance(block, str) else ""
+
+    block_type = (block.get("@type") or "").lower()
+
+    if block_type in _SKIP_BLOCK_TYPES:
+        return ""
+
+    if block_type in _DYNAMIC_BLOCK_TYPES:
+        return ""
+
+    # Slate / text blocks
+    if block_type in ("slate", "text"):
+        plaintext = block.get("plaintext")
+        if isinstance(plaintext, str) and plaintext.strip():
+            return strip_html(plaintext)
+        value = block.get("value")
+        if isinstance(value, list):
+            # Each top-level node in a Slate value array is a paragraph/block
+            # element.  Join them with newlines to preserve paragraph structure.
+            parts: List[str] = []
+            for node in value:
+                if isinstance(node, dict):
+                    node_text = node.get("text") or ""
+                    if not node_text and node.get("children"):
+                        node_text = _flatten_slate_children(node.get("children"))
+                    node_text = strip_html(node_text.strip()) if node_text else ""
+                    if node_text:
+                        parts.append(node_text)
+            if parts:
+                return "\n".join(parts)
+        elif isinstance(value, dict):
+            children = value.get("children")
+            if isinstance(children, list):
+                text = _flatten_slate_children(children)
+                if text.strip():
+                    return strip_html(text)
+        text_field = block.get("text")
+        if isinstance(text_field, str) and text_field.strip():
+            return strip_html(text_field)
+        return ""
+
+    # Image blocks
+    if block_type == "image":
+        label = block.get("alt") or block.get("caption") or block.get("title") or ""
+        if isinstance(label, str) and label.strip():
+            return f"[Image: {strip_html(label)}]"
+        return ""
+
+    # Video blocks
+    if block_type == "video":
+        label = block.get("title") or block.get("description") or ""
+        if isinstance(label, str) and label.strip():
+            return f"[Video: {strip_html(label)}]"
+        return ""
+
+    # Table blocks
+    if block_type == "table":
+        table_data = block.get("table") or {}
+        rows = table_data.get("rows") or []
+        if not rows:
+            return ""
+        row_texts: List[str] = []
+        for row in rows:
+            cells = row.get("cells") or []
+            cell_texts: List[str] = []
+            for cell in cells:
+                cell_value = cell.get("value")
+                if isinstance(cell_value, list):
+                    cell_texts.append(_flatten_slate_children(cell_value).strip())
+                elif isinstance(cell_value, str):
+                    cell_texts.append(strip_html(cell_value))
+                else:
+                    cell_texts.append("")
+            row_texts.append(" | ".join(cell_texts))
+        return "\n".join(row_texts)
+
+    # Teaser blocks
+    if block_type == "teaser":
+        parts: List[str] = []
+        for key in ("head_title", "title", "description"):
+            val = block.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(strip_html(val))
+        return " - ".join(parts) if parts else ""
+
+    # Hero blocks
+    if block_type == "hero":
+        parts: List[str] = []
+        for key in ("title", "description"):
+            val = block.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(strip_html(val))
+        return " - ".join(parts) if parts else ""
+
+    # Quote blocks
+    if "quote" in block_type:
+        parts: List[str] = []
+        quote_text = block.get("quote") or block.get("text") or ""
+        if isinstance(quote_text, str) and quote_text.strip():
+            parts.append(strip_html(quote_text))
+        attribution = (
+            block.get("attribution")
+            or block.get("source")
+            or block.get("cite")
+            or block.get("citation")
+            or ""
+        )
+        if isinstance(attribution, str) and attribution.strip():
+            parts.append(f"-- {strip_html(attribution)}")
+        return " ".join(parts) if parts else ""
+
+    # Container: columns block
+    if block_type in ("columnsblock", "columns"):
+        columns = block.get("columns") or []
+        col_parts: List[str] = []
+        for col in columns:
+            if isinstance(col, dict):
+                col_text = _extract_from_blocks_layout(
+                    col.get("blocks"), col.get("blocks_layout")
+                )
+                if col_text:
+                    col_parts.append(col_text)
+        return "\n\n".join(col_parts)
+
+    # Container: tabs / accordion blocks
+    if block_type in ("tabs", "accordion"):
+        tabs = block.get("tabs") or block.get("data", {}).get("tabs") or []
+        tab_parts: List[str] = []
+        for tab in tabs:
+            if isinstance(tab, dict):
+                heading = tab.get("title") or ""
+                body = _extract_from_blocks_layout(
+                    tab.get("blocks"), tab.get("blocks_layout")
+                )
+                if heading and body:
+                    tab_parts.append(f"{strip_html(heading)}: {body}")
+                elif body:
+                    tab_parts.append(body)
+        return "\n\n".join(tab_parts)
+
+    # Generic container: blocks nested in data.blocks
+    data = block.get("data")
+    if isinstance(data, dict) and data.get("blocks") and data.get("blocks_layout"):
+        return _extract_from_blocks_layout(data["blocks"], data["blocks_layout"])
+
+    # Generic container: blocks nested directly
+    if block.get("blocks") and block.get("blocks_layout"):
+        return _extract_from_blocks_layout(block["blocks"], block["blocks_layout"])
+
+    # Fallback: only try known text fields, never flatten entire block
+    for key in ("plaintext", "text", "description", "headline"):
+        val = block.get(key)
+        if isinstance(val, str) and val.strip():
+            return strip_html(val)
+
+    # Try slate value as last resort
+    value = block.get("value")
+    if isinstance(value, list):
+        text = _flatten_slate_children(value)
+        if text.strip():
+            return strip_html(text)
+
+    return ""
+
+
+def _extract_from_blocks_layout(
+    blocks: Optional[Dict[str, Any]],
+    blocks_layout: Optional[Dict[str, Any]],
+) -> str:
+    """Extract text from blocks in layout order."""
+    if not isinstance(blocks, dict):
+        return ""
+    ordered_ids: List[str] = []
+    if isinstance(blocks_layout, dict):
+        ordered_ids = blocks_layout.get("items") or []
+
+    block_items: List[Dict[str, Any]] = []
+    for bid in ordered_ids:
+        if bid in blocks:
+            block_items.append(blocks[bid])
+    if not block_items:
+        block_items = list(blocks.values())
+
+    parts: List[str] = []
+    for block in block_items:
+        text = _extract_block_text(block)
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
 def resolve_content(context_page: Optional[Dict[str, str]]) -> Tuple[Any, str]:
     portal = api.portal.get()
     if context_page:
@@ -116,10 +317,6 @@ def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
                 quote = data.get("text") or data.get("quote")
                 cite = data.get("citation") or data.get("attribution") or data.get("source")
                 if isinstance(quote, str):
-                    parts.append(strip_html(quote))
-                if isinstance(cite, str):
-                    parts.append(strip_html(cite))
-                if isinstance(quote, str):
                     cleaned_quote = strip_html(quote)
                     if cleaned_quote:
                         quotes.append(
@@ -131,10 +328,8 @@ def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
         # Slate richtext children
         if "children" in block:
             slate_text = _flatten_slate_children(block.get("children"))
-            if slate_text:
-                parts.append(strip_html(slate_text))
-                if "quote" in (block.get("@type") or "").lower():
-                    quotes.append({"quote": strip_html(slate_text), "attribution": ""})
+            if slate_text and "quote" in (block.get("@type") or "").lower():
+                quotes.append({"quote": strip_html(slate_text), "attribution": ""})
         # Generic quote @type with text/citation
         btype = (block.get("@type") or "").lower()
         if "quote" in btype:
@@ -154,77 +349,75 @@ def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
     return quotes
 
 
-def extract_page_text(obj: Any) -> str:
+def extract_page_text(obj: Any) -> Tuple[str, List[Dict[str, str]]]:
     if obj is None:
-        return ""
+        return "", []
     parts: List[str] = []
 
+    # Title
     title = getattr(obj, "Title", None)
     if callable(title):
-        parts.append(strip_html(str(title())))
+        title_text = strip_html(str(title()))
     elif isinstance(title, str):
-        parts.append(strip_html(title))
+        title_text = strip_html(title)
+    else:
+        title_text = ""
+    if title_text:
+        parts.append(title_text)
 
+    # Description
     description = getattr(obj, "Description", None)
     if callable(description):
-        parts.append(strip_html(str(description())))
+        desc_text = strip_html(str(description()))
     elif isinstance(description, str):
-        parts.append(strip_html(description))
+        desc_text = strip_html(description)
+    else:
+        desc_text = ""
+    if desc_text:
+        parts.append(desc_text)
 
-    # Include body field if present
+    # Include body field if present (non-blocks content types)
     body = getattr(obj, "text", None)
     if callable(body):
         body = body()
     if isinstance(body, str):
-        parts.append(strip_html(body))
+        body_text = strip_html(body)
+        if body_text:
+            parts.append(body_text)
     elif hasattr(body, "output"):
-        parts.append(strip_html(str(body.output)))
+        body_text = strip_html(str(body.output))
+        if body_text:
+            parts.append(body_text)
 
+    # Extract text from blocks using type-aware extraction
     blocks = getattr(obj, "blocks", None) or getattr(obj, "getBlocks", lambda: {})()
-    blocks_layout = getattr(obj, "blocks_layout", None) or getattr(obj, "getBlocksLayout", lambda: {})()
-    ordered_ids = []
-    if isinstance(blocks_layout, dict):
-        ordered_ids = blocks_layout.get("items") or []
+    blocks_layout = getattr(obj, "blocks_layout", None) or getattr(
+        obj, "getBlocksLayout", lambda: {}
+    )()
 
     if isinstance(blocks, dict):
-        block_items = []
+        body_text = _extract_from_blocks_layout(blocks, blocks_layout)
+        if body_text:
+            parts.append(body_text)
+
+    text = "\n\n".join(filter(None, parts))
+    text = _truncate(text, MAX_PAGE_TEXT)
+
+    # Collect quotes
+    block_items: List[Any] = []
+    if isinstance(blocks, dict):
+        ordered_ids: List[str] = []
+        if isinstance(blocks_layout, dict):
+            ordered_ids = blocks_layout.get("items") or []
         for bid in ordered_ids:
             if bid in blocks:
                 block_items.append(blocks[bid])
-        # fallback to all values
         if not block_items:
             block_items = list(blocks.values())
 
-        for block in block_items:
-            if not isinstance(block, dict):
-                text = _flatten_block_value(block)
-                if text:
-                    parts.append(strip_html(text))
-                continue
+    quotes = _collect_quotes(block_items)
 
-            # prefer "text" and "value" keys
-            if "text" in block and isinstance(block.get("text"), str):
-                parts.append(strip_html(block.get("text")))
-            if "value" in block:
-                text = _flatten_block_value(block.get("value"))
-                if text:
-                    parts.append(strip_html(text))
-            # include common quote/description fields explicitly
-            for key in ("quote", "source", "cite", "attribution", "description", "headline"):
-                if key in block and isinstance(block.get(key), str):
-                    parts.append(strip_html(block.get(key)))
-
-            # add any nested strings
-            text = _flatten_block_value(block)
-            if text:
-                parts.append(strip_html(text))
-
-    text = " ".join(filter(None, parts))
-    text = _truncate(text, MAX_PAGE_TEXT)
-    quotes = _collect_quotes(block_items if "block_items" in locals() else [])
-
-    # Merge unique quotes
-    seen_quotes = set()
+    seen_quotes: set = set()
     final_quotes: List[Dict[str, str]] = []
     for item in quotes:
         q = (item.get("quote") or "").strip()
@@ -303,6 +496,16 @@ def clean_text(value: str) -> str:
     return " ".join(text.split())
 
 
+def _clean_preserve_paragraphs(value: str) -> str:
+    """Clean text while preserving paragraph breaks (\\n\\n)."""
+    text = strip_html(value or "")
+    text = HTML_TOKEN_RE.sub(" ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    lines = text.split("\n")
+    cleaned = "\n".join(" ".join(line.split()) for line in lines)
+    return cleaned.strip()
+
+
 def _build_doc_from_obj(obj: Any, doc_type: str, score: float = 0.0) -> Dict[str, Any]:
     if obj is None:
         return {}
@@ -355,6 +558,20 @@ def collect_site_documents(page_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     return docs
 
 
+_METADATA_LABEL_RE = re.compile(
+    r"^(?:Title|Type|Description):\s*.*$", re.MULTILINE
+)
+
+
+def _strip_metadata_labels(text: str) -> str:
+    """Remove frontend metadata labels (Title:, Type:, Description:, ---) from page content."""
+    text = _METADATA_LABEL_RE.sub("", text)
+    text = re.sub(r"^---\s*$", "", text, flags=re.MULTILINE)
+    # Collapse resulting blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     mode = (context or {}).get("mode") or "page"
     page_info = (context or {}).get("page") or {}
@@ -363,8 +580,27 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
     uploads = (context or {}).get("uploads") or []
 
     obj, resolved = resolve_content(page_info)
-    raw_page_text, page_quotes = extract_page_text(obj)
-    page_text = clean_text(raw_page_text)
+
+    # Prefer frontend-extracted page content when available
+    frontend_page_content = (context or {}).get("page_content") or ""
+    if isinstance(frontend_page_content, str) and frontend_page_content.strip():
+        raw_page_text = _strip_metadata_labels(frontend_page_content)
+        # Still collect quotes from blocks for the quotes feature
+        page_quotes: List[Dict[str, str]] = []
+        blocks = getattr(obj, "blocks", None) or {}
+        blocks_layout = getattr(obj, "blocks_layout", None) or {}
+        if isinstance(blocks, dict):
+            ordered_ids: List[str] = []
+            if isinstance(blocks_layout, dict):
+                ordered_ids = blocks_layout.get("items") or []
+            block_items = [blocks[bid] for bid in ordered_ids if bid in blocks]
+            if not block_items:
+                block_items = list(blocks.values())
+            page_quotes = _collect_quotes(block_items)
+    else:
+        raw_page_text, page_quotes = extract_page_text(obj)
+
+    page_text = _clean_preserve_paragraphs(raw_page_text)
     page_id = page_info.get("uid")
     if not page_id:
         page_id = _call_if_callable(getattr(obj, "UID", None)) or _call_if_callable(

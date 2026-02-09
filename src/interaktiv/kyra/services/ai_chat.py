@@ -217,7 +217,7 @@ def _apply_prompt_fallback(
     return response
 
 
-MAX_DOC_MESSAGE_TEXT = 1200
+MAX_DOC_MESSAGE_TEXT = 3000
 CITATION_SNIPPET_LIMIT = 140
 UPLOAD_SNIPPET_LIMIT = 8000
 
@@ -231,18 +231,30 @@ def _build_system_message(context_docs: Dict[str, Any]) -> str:
     mode = context_docs.get("mode") or "page"
     documents = context_docs.get("documents") or []
     lines = [
-        "You are Kyra AI, the helpful assistant for this Plone site.",
-        f"Mode: {mode}",
-        "Use ONLY the provided context documents to answer, including any uploaded files.",
-        "Cite your sources (title and URL) and do not invent information.",
-        "If the answer cannot be found in those documents, say you cannot find it on this website and ask what to search for next.",
-        "Context documents:",
+        "You are Kyra AI, a knowledgeable and helpful assistant for this website.",
+        "",
+        "## Response format",
+        "- Write in well-structured, natural language. Use markdown formatting: **bold** for emphasis, headings (##), bullet points, and clear paragraphs.",
+        "- NEVER output technical metadata, labels, or raw data such as 'Title:', 'Type:', 'Description:', '---', block types, UIDs, or internal field names.",
+        "- When summarizing, write a coherent, readable summary covering all main topics. Organize into logical sections with headings if the content has multiple distinct topics.",
+        "- Provide comprehensive answers of appropriate length — not too short, not excessively long.",
+        "- Match the language of the user's question (German question → German answer, English question → English answer).",
+        "",
+        "## Content rules",
+        f"- Current mode: {mode}",
+        "- Answer based ONLY on the provided context documents and any uploaded files.",
+        "- When relevant, cite your sources by mentioning the page title.",
+        "- If the answer cannot be found in the provided documents, clearly state that and suggest what the user could search for.",
+        "- Do not invent or hallucinate information not present in the context.",
+        "",
+        "## Context Documents",
     ]
-    for doc in documents[:4]:
+    for doc in documents[:6]:
         title = doc.get("title") or doc.get("url") or "Document"
         url = doc.get("url", "")
-        snippet = (doc.get("text") or "")[:180].replace("\n", " ")
-        lines.append(f"- {title} ({url}): {snippet}")
+        doc_type = doc.get("type", "")
+        snippet = (doc.get("text") or "")[:300].replace("\n", " ")
+        lines.append(f"- [{doc_type}] {title} ({url}): {snippet}")
     return "\n".join(lines)
 
 
@@ -310,26 +322,52 @@ def _missing_page_content_message() -> str:
     )
 
 
-def _summarize_text(text: str, max_sentences: int = 6, max_chars: int = 800) -> str:
-    cleaned = clean_text(text)
-    if not cleaned:
+def _format_page_text(text: str, max_chars: int = 1500) -> str:
+    """Format extracted page text for display as a fallback summary."""
+    if not text or not text.strip():
         return ""
-    separators = re.compile(r"(?<=[.!?])\s+")
-    sentences = [sentence.strip() for sentence in separators.split(cleaned) if sentence.strip()]
-    # If text is very long, prefer a clean snippet with ellipsis
-    if len(cleaned) > max_chars:
-        snippet = cleaned[:max_chars]
-        snippet = snippet.rsplit(" ", 1)[0]
-        return snippet + "…"
 
-    selected = sentences[:max_sentences] or sentences
-    if not selected:
-        return cleaned
+    result = text.strip()
+    if len(result) > max_chars:
+        result = result[:max_chars].rsplit(" ", 1)[0] + "..."
 
-    if len(selected) == 1:
-        return selected[0]
+    # Break numbered headings onto their own line when inline
+    # e.g. "...erhalten. 01. Voraussetzungen In der Regel..." →
+    #      "...erhalten.\n\n**01. Voraussetzungen**\nIn der Regel..."
+    result = re.sub(
+        r"(?<=\S)\s+(\d{1,2})\.\s+([A-ZÄÖÜ])",
+        r"\n\n**\1. \2",
+        result,
+    )
 
-    return "\n".join(f"- {sentence}" for sentence in selected)
+    # Bold numbered headings already at start of a line
+    result = re.sub(
+        r"^(\d{1,2})\.\s+([A-ZÄÖÜ])",
+        r"**\1. \2",
+        result,
+        flags=re.MULTILINE,
+    )
+
+    # Close bold markers: find end of heading (next sentence or next paragraph)
+    lines = result.split("\n")
+    formatted_lines: list = []
+    for line in lines:
+        if line.startswith("**") and "**" not in line[2:]:
+            # Line has unclosed bold — close it at end of the heading phrase
+            # Heading ends before the first sentence-continuation pattern
+            m = re.match(
+                r"(\*\*\d{1,2}\.\s+\S+(?:\s+\S+){0,5}?)\s+((?:In|Im|Der|Die|Das|Es|Ein|Eine|Neben|Sofern|Sie|Wenn|Wir|Für|Bei|Auf|Unter|Über|Nach|Vor|Durch|Zum|Zur|Mit|Hier|The|A|An|If|For|When|This|It|You|We|To)\s)",
+                line,
+            )
+            if m:
+                formatted_lines.append(f"{m.group(1)}**\n{m.group(2)}{line[m.end():]}")
+            else:
+                # Close at end of line
+                formatted_lines.append(f"{line}**")
+        else:
+            formatted_lines.append(line)
+
+    return "\n".join(formatted_lines)
 
 
 def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> str:
@@ -337,12 +375,12 @@ def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> st
     title = page_doc.get("title") or "This page"
     mode = context_docs.get("mode") or "page"
     query = context_docs.get("query")
-    summary_text = _summarize_text(page_doc.get("text") or "")
+    formatted_text = _format_page_text(page_doc.get("text") or "")
     cleaned_query = clean_text(last_query or "")
 
     upload_docs = context_docs.get("upload_docs") or []
 
-    if not summary_text:
+    if not formatted_text:
         return _missing_page_content_message()
 
     if _detect_upload_intent(last_query) and upload_docs:
@@ -350,24 +388,21 @@ def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> st
         for doc in upload_docs[:2]:
             snippet = _format_upload_snippet(doc)
             lines.append("")
-            lines.append(f"- {doc.get('title')}: {snippet}")
+            lines.append(f"- **{doc.get('title')}**: {snippet}")
         return "\n".join(lines)
 
     if mode == "summarize":
-        return f"Summary of {title}:\n{summary_text}"
+        return f"**{title}**\n\n{formatted_text}"
     if mode in ("related", "search"):
         label = query or title
         verb = "related content" if mode == "related" else "search results"
         return (
-            f"{verb.capitalize()} for '{label}' are not reachable right now. "
-            f"In the meantime, here is what I can share from {title}:\n{summary_text}"
+            f"{verb.capitalize()} for **{label}** are not reachable right now. "
+            f"In the meantime, here is what I can share from **{title}**:\n\n{formatted_text}"
         )
     if cleaned_query:
-        return (
-            f"Summary of {title} (regarding '{cleaned_query}'):\n{summary_text}\n"
-            "The live AI is unavailable right now, so I’m sharing the information from this page."
-        )
-    return f"Summary of {title}:\n{summary_text}"
+        return f"**{title}**\n\n{formatted_text}"
+    return f"**{title}**\n\n{formatted_text}"
 
 
 def _format_citation_snippet(doc: Dict[str, Any]) -> str:
@@ -875,7 +910,7 @@ class AIChatService(ServiceBase):
         documents = context_docs.get("documents") or []
         doc_messages = [
             _format_context_doc_message(doc)
-            for doc in documents[:5]
+            for doc in documents[:6]
             if doc.get("text")
         ]
         gateway_messages = [{"role": "system", "content": system_message}] + doc_messages + messages
