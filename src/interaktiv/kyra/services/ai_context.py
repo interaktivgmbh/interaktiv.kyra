@@ -247,9 +247,20 @@ def _extract_from_blocks_layout(
     blocks_layout: Optional[Dict[str, Any]],
 ) -> str:
     """Extract text from blocks in layout order."""
-    if not isinstance(blocks, dict):
+    if not blocks:
         return ""
+    # Handle mapping-like objects (e.g. PersistentMapping)
+    if not isinstance(blocks, dict):
+        try:
+            blocks = dict(blocks)
+        except (TypeError, ValueError):
+            return ""
     ordered_ids: List[str] = []
+    if blocks_layout and not isinstance(blocks_layout, dict):
+        try:
+            blocks_layout = dict(blocks_layout)
+        except (TypeError, ValueError):
+            blocks_layout = {}
     if isinstance(blocks_layout, dict):
         ordered_ids = blocks_layout.get("items") or []
 
@@ -395,8 +406,29 @@ def extract_page_text(obj: Any) -> Tuple[str, List[Dict[str, str]]]:
         obj, "getBlocksLayout", lambda: {}
     )()
 
-    if isinstance(blocks, dict):
+    # Convert mapping-like objects to dict for isinstance checks
+    if blocks and not isinstance(blocks, dict):
+        try:
+            blocks = dict(blocks)
+        except (TypeError, ValueError):
+            blocks = {}
+
+    if isinstance(blocks, dict) and blocks:
         body_text = _extract_from_blocks_layout(blocks, blocks_layout)
+        if not body_text:
+            # Fallback: flatten all block values (less clean but catches everything)
+            fallback_parts: List[str] = []
+            for block in blocks.values():
+                if not isinstance(block, dict):
+                    continue
+                btype = (block.get("@type") or "").lower()
+                if btype in _SKIP_BLOCK_TYPES or btype in _DYNAMIC_BLOCK_TYPES:
+                    continue
+                raw = _flatten_block_value(block)
+                cleaned = strip_html(raw)
+                if cleaned and len(cleaned) > 10:
+                    fallback_parts.append(cleaned)
+            body_text = "\n\n".join(fallback_parts)
         if body_text:
             parts.append(body_text)
 
@@ -583,21 +615,26 @@ def build_context_documents(context: Optional[Dict[str, Any]]) -> Dict[str, Any]
 
     # Prefer frontend-extracted page content when available
     frontend_page_content = (context or {}).get("page_content") or ""
+    raw_page_text = ""
+    page_quotes: List[Dict[str, str]] = []
     if isinstance(frontend_page_content, str) and frontend_page_content.strip():
-        raw_page_text = _strip_metadata_labels(frontend_page_content)
-        # Still collect quotes from blocks for the quotes feature
-        page_quotes: List[Dict[str, str]] = []
-        blocks = getattr(obj, "blocks", None) or {}
-        blocks_layout = getattr(obj, "blocks_layout", None) or {}
-        if isinstance(blocks, dict):
-            ordered_ids: List[str] = []
-            if isinstance(blocks_layout, dict):
-                ordered_ids = blocks_layout.get("items") or []
-            block_items = [blocks[bid] for bid in ordered_ids if bid in blocks]
-            if not block_items:
-                block_items = list(blocks.values())
-            page_quotes = _collect_quotes(block_items)
-    else:
+        stripped = _strip_metadata_labels(frontend_page_content)
+        if stripped.strip():
+            raw_page_text = stripped
+            # Still collect quotes from blocks for the quotes feature
+            blocks = getattr(obj, "blocks", None) or {}
+            blocks_layout = getattr(obj, "blocks_layout", None) or {}
+            if isinstance(blocks, dict):
+                ordered_ids: List[str] = []
+                if isinstance(blocks_layout, dict):
+                    ordered_ids = blocks_layout.get("items") or []
+                block_items = [blocks[bid] for bid in ordered_ids if bid in blocks]
+                if not block_items:
+                    block_items = list(blocks.values())
+                page_quotes = _collect_quotes(block_items)
+
+    # Fall back to backend extraction if frontend content was empty or only metadata
+    if not raw_page_text.strip():
         raw_page_text, page_quotes = extract_page_text(obj)
 
     page_text = _clean_preserve_paragraphs(raw_page_text)
