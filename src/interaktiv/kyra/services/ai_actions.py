@@ -1309,7 +1309,41 @@ def _maybe_add_grid_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dic
     if not replaced:
         actions.append(correct_grid)
 
+    # Remove standalone heading/text/list/quote blocks whose content is
+    # already embedded inside the grid columns, so only the grid is inserted.
+    grid_texts = set()
+    if heading_text:
+        grid_texts.add(heading_text.strip().lower())
+    if body_text:
+        grid_texts.add(body_text.strip().lower())
+
+    if grid_texts:
+        actions = [
+            a for a in actions
+            if not _is_redundant_block_for_grid(a, grid_texts)
+        ]
+
     return actions
+
+
+def _is_redundant_block_for_grid(
+    action: Dict[str, Any], grid_texts: set
+) -> bool:
+    """Return True if this action is a standalone block whose content
+    duplicates text already placed inside grid columns."""
+    atype = action.get("type") or ""
+    payload = action.get("payload") or {}
+
+    if atype in ("insert_heading_block", "insert_text_block", "insert_quote_block"):
+        text = (payload.get("text") or "").strip().lower()
+        if text and text in grid_texts:
+            return True
+    elif atype == "insert_list_block":
+        items = payload.get("items") or []
+        joined = " ".join(str(i) for i in items).strip().lower()
+        if joined and joined in grid_texts:
+            return True
+    return False
 
 
 def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
