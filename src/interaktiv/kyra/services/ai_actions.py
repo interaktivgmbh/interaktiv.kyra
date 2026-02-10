@@ -64,6 +64,58 @@ UUID_RE = re.compile(r"^[0-9a-fA-F-]{32,36}$")
 RESOLVEUID_RE = re.compile(r"resolveuid/([0-9a-fA-F-]{32,36})")
 IMAGES_SCALE_RE = re.compile(r"@@images/([^/]+)/([^/?#]+)")
 
+MAX_GRID_COLUMNS = 6
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "ein": 1, "eine": 1, "zwei": 2, "drei": 3, "vier": 4,
+    "fuenf": 5, "fünf": 5, "sechs": 6,
+}
+_NUMBER_WORD_PATTERN = "|".join(re.escape(w) for w in _NUMBER_WORDS)
+
+
+def _parse_grid_columns(text: str) -> int:
+    """Parse column count from free text (EN + DE). Returns 1-6, default 3."""
+    if not isinstance(text, str):
+        return 3
+    lower = text.lower()
+    # digit + column/Spalte variants: "3 columns", "3-spaltig", "3 Spalten"
+    m = re.search(r"(\d+)\s*[-\s]?\s*(?:columns?|spalte(?:n|ig)?|spaltig)", lower)
+    if m:
+        return max(1, min(MAX_GRID_COLUMNS, int(m.group(1))))
+    # number word + column/Spalte: "three columns", "drei Spalten"
+    m = re.search(
+        rf"({_NUMBER_WORD_PATTERN})\s*[-\s]?\s*(?:columns?|spalte(?:n|ig)?|spaltig)", lower
+    )
+    if m:
+        return max(1, min(MAX_GRID_COLUMNS, _NUMBER_WORDS.get(m.group(1), 3)))
+    # compound German: "dreispaltig", "vierspaltig"
+    m = re.search(rf"({_NUMBER_WORD_PATTERN})spaltig", lower)
+    if m:
+        return max(1, min(MAX_GRID_COLUMNS, _NUMBER_WORDS.get(m.group(1), 3)))
+    return 3
+
+
+def _wants_grid(text: str) -> bool:
+    """Detect grid/column layout intent in EN or DE."""
+    if not isinstance(text, str):
+        return False
+    lower = text.lower()
+    if re.search(r"\bgrid\b", lower):
+        return True
+    if re.search(r"\braster\b", lower):
+        return True
+    if re.search(r"spalten[-\s]?layout", lower):
+        return True
+    if re.search(r"\d+\s*[-]?\s*spaltig", lower):
+        return True
+    if re.search(rf"(?:{_NUMBER_WORD_PATTERN})spaltig", lower):
+        return True
+    if re.search(r"\d+\s*[-\s]?\s*(?:columns?|spalte(?:n)?)\b", lower):
+        return True
+    if re.search(rf"(?:{_NUMBER_WORD_PATTERN})\s*[-\s]?\s*(?:columns?|spalte(?:n)?)\b", lower):
+        return True
+    return False
+
 
 def _get_int_env(name: str, default: int) -> int:
     try:
@@ -204,7 +256,12 @@ def _build_plan_prompt_payload() -> Dict[str, Any]:
             "- insert_list_block (payload: {\"items\": [\"...\"], \"ordered\": false})\n"
             "- insert_quote_block (payload: {\"text\": \"...\", \"citation\": \"...\"})\n"
             "- insert_image_block (payload: {\"url\": \"...\" OR \"uid\": \"...\", \"alt\": \"...\", \"scale\": \"large\"})\n\n"
-            "- insert_block (payload: {\"block\": {\"@type\": \"...\", ...}})  # for advanced blocks like video, listing, teaser, map, grid\n\n"
+            "- insert_block (payload: {\"block\": {\"@type\": \"...\", ...}})  # for advanced blocks like video, listing, teaser, map\n\n"
+            "Grid blocks:\n"
+            "  For grid/column layouts, use insert_block with @type \"gridBlock\".\n"
+            "  Extract the number of columns from the user request (1-6, default 3).\n"
+            "  Payload: {\"block\": {\"@type\": \"gridBlock\", \"columns\": <N>}}\n"
+            "  Examples: \"3 Spalten\" -> 3, \"dreispaltig\" -> 3, \"4-column grid\" -> 4\n\n"
             "If the request asks to improve the description but no new text is given,\n"
             "rewrite the current description into a clearer, shorter version. If the\n"
             "current description is empty, draft a concise one-sentence description.\n"
@@ -233,6 +290,9 @@ def _build_plan_input(goal: str, target=None) -> str:
             lines.append(f"Current description: {description}")
         if language:
             lines.append(f"Current language: {language}")
+    if _wants_grid(goal):
+        columns = _parse_grid_columns(goal)
+        lines.append(f"Hint: User wants a grid layout with {columns} columns.")
     return "\n".join(lines)
 
 
@@ -309,7 +369,6 @@ def _canonical_action_type(action_type: str) -> str:
     mapping = {
         "add_text_block": "insert_text_block",
         "append_text_block": "insert_text_block",
-        "insert_block": "insert_text_block",
         # generic block insertion
         "add_block": "insert_block",
         "insert_generic_block": "insert_block",
@@ -862,6 +921,23 @@ def _normalize_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if block is None and isinstance(payload, dict):
             block = payload
         if isinstance(block, dict) and isinstance(block.get("@type"), str) and block.get("@type").strip():
+            block_type = block["@type"].strip()
+            if block_type in ("gridBlock", "grid"):
+                block["@type"] = "gridBlock"
+                columns = block.get("columns")
+                if isinstance(columns, (int, str)):
+                    try:
+                        columns = max(1, min(MAX_GRID_COLUMNS, int(columns)))
+                    except (TypeError, ValueError):
+                        columns = 3
+                else:
+                    columns = 3
+                if "blocks" not in block or "blocks_layout" not in block:
+                    heading = block.get("heading") or block.get("title")
+                    body = block.get("body") or block.get("text")
+                    block = _build_grid_block(columns, heading, body)
+                else:
+                    block["columns"] = columns
             return {"type": "insert_block", "payload": {"block": block}}
     elif action_type == "translate_content":
         target_language = payload.get("target_language") or action.get("target_language")
@@ -958,7 +1034,6 @@ def _derive_actions_from_gateway(goal: str, target, kyra) -> List[Dict[str, Any]
         normalized_action = _normalize_action(action)
         if normalized_action is not None:
             normalized.append(normalized_action)
-    normalized = _maybe_add_grid_action(goal, normalized)
     return normalized
 
 
@@ -1173,15 +1248,8 @@ def _derive_actions_from_patterns(goal: str, target=None) -> List[Dict[str, Any]
             actions.append({"type": "insert_block", "payload": {"block": teaser_payload}})
 
     # Grid block (default Volto grid block id: gridBlock)
-    grid_match = re.search(r"\bgrid\b", text, re.IGNORECASE)
-    if grid_match:
-        columns = 3
-        col_match = re.search(r"(\d+)\s*column", text, re.IGNORECASE)
-        if col_match:
-            try:
-                columns = max(1, min(4, int(col_match.group(1))))
-            except Exception:
-                columns = 3
+    if _wants_grid(text):
+        columns = _parse_grid_columns(text)
         heading_text = None
         body_text = None
         quoted = re.findall(r'"([^"]+)"', text)
@@ -1200,23 +1268,18 @@ def _derive_actions_from_patterns(goal: str, target=None) -> List[Dict[str, Any]
 
 
 def _maybe_add_grid_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """If user asked for a grid but gateway didn't propose one, synthesize it."""
+    """Ensure grid action matches the user's requested column count and content.
+
+    If the gateway already proposed a grid, replace it with one that has the
+    correct column count and content extracted from the goal text.  If no grid
+    exists yet, append one.
+    """
     if not isinstance(goal, str):
         return actions
-    if any(a.get("type") == "insert_block" and (a.get("payload") or {}).get("block", {}).get("@type") in ("grid",
-                                                                                                          "gridBlock")
-           for a in actions):
-        return actions
-    if not re.search(r"\bgrid\b", goal, re.IGNORECASE):
+    if not _wants_grid(goal):
         return actions
 
-    columns = 3
-    col_match = re.search(r"(\d+)\s*column", goal, re.IGNORECASE)
-    if col_match:
-        try:
-            columns = max(1, min(4, int(col_match.group(1))))
-        except Exception:
-            columns = 3
+    columns = _parse_grid_columns(goal)
 
     heading_text = None
     body_text = None
@@ -1226,12 +1289,26 @@ def _maybe_add_grid_action(goal: str, actions: List[Dict[str, Any]]) -> List[Dic
     elif len(quoted) == 1:
         heading_text = quoted[0]
 
-    actions.append(
-        {
-            "type": "insert_block",
-            "payload": {"block": _build_grid_block(columns, heading_text, body_text)},
-        }
-    )
+    correct_grid = {
+        "type": "insert_block",
+        "payload": {"block": _build_grid_block(columns, heading_text, body_text)},
+    }
+
+    # Replace existing grid action if present, otherwise append
+    replaced = False
+    for i, a in enumerate(actions):
+        if (
+            a.get("type") == "insert_block"
+            and isinstance((a.get("payload") or {}).get("block"), dict)
+            and a["payload"]["block"].get("@type") in ("grid", "gridBlock")
+        ):
+            actions[i] = correct_grid
+            replaced = True
+            break
+
+    if not replaced:
+        actions.append(correct_grid)
+
     return actions
 
 
@@ -1279,7 +1356,11 @@ def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
         elif action_type == "insert_block":
             block = payload.get("block") or {}
             block_type = block.get("@type")
-            if block_type == "teaser":
+            if block_type in ("gridBlock", "grid"):
+                cols = block.get("columns", 3)
+                summaries.append(f"Insert {cols}-column grid block")
+                diffs.append(f"+ grid: {cols} columns")
+            elif block_type == "teaser":
                 summaries.append("Insert teaser block")
                 title = block.get("title") or ""
                 href = block.get("href") or ""
@@ -2374,7 +2455,7 @@ def _build_image_block(
 
 
 def _build_grid_block(columns: int, heading: Optional[str] = None, body: Optional[str] = None) -> Dict[str, Any]:
-    cols = max(1, min(4, int(columns) if isinstance(columns, int) else 3))
+    cols = max(1, min(MAX_GRID_COLUMNS, int(columns) if isinstance(columns, int) else 3))
     ids = [str(uuid.uuid4()) for _ in range(cols)]
 
     # Build a slate block per column, honoring allowedBlocks (slate)
@@ -2520,14 +2601,17 @@ class AIActionsService(ServiceBase):
         target = _resolve_target(self.context, data)
         _ensure_editor(target)
 
-        actions = data.get("actions")
+        inline_actions = data.get("actions")
         plan_id = data.get("plan_id")
+        actions = inline_actions
 
         if plan_id:
             plan = _load_plan(target, plan_id)
             if not plan:
                 raise BadRequest("Unknown plan_id")
-            actions = plan.get("actions") or []
+            plan_actions = plan.get("actions") or []
+            if plan_actions:
+                actions = plan_actions
 
         if not isinstance(actions, list) or not actions:
             raise BadRequest("Missing actions to apply")
