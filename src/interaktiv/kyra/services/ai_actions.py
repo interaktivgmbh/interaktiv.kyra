@@ -175,15 +175,6 @@ def _derive_actions(goal: str, target=None, kyra=None, translate_opts: Optional[
                         },
                     }
                 )
-            if not _has_teaser_action(actions):
-                teaser_actions = [
-                    a
-                    for a in _derive_actions_from_patterns(goal, target)
-                    if a.get("type") == "insert_block"
-                       and isinstance(a.get("payload", {}).get("block"), dict)
-                       and a["payload"]["block"].get("@type") == "teaser"
-                ]
-                actions.extend(teaser_actions)
             # Enrich with derived helpers (grid/video/html/teaser) and cleanup
             actions = _maybe_add_grid_action(goal, actions)
             actions = _maybe_add_video_action(goal, actions)
@@ -262,6 +253,11 @@ def _build_plan_prompt_payload() -> Dict[str, Any]:
             "  Extract the number of columns from the user request (1-6, default 3).\n"
             "  Payload: {\"block\": {\"@type\": \"gridBlock\", \"columns\": <N>}}\n"
             "  Examples: \"3 Spalten\" -> 3, \"dreispaltig\" -> 3, \"4-column grid\" -> 4\n\n"
+            "Teaser blocks:\n"
+            "  For teaser blocks, use insert_block with @type \"teaser\".\n"
+            "  IMPORTANT: Use \"href\" (not \"url\") for the target link.\n"
+            "  Payload: {\"block\": {\"@type\": \"teaser\", \"href\": \"/target-path\"}}\n"
+            "  Examples: \"auf /studie verlinkt\" -> href: \"/studie\", \"link to /news\" -> href: \"/news\"\n\n"
             "If the request asks to improve the description but no new text is given,\n"
             "rewrite the current description into a clearer, shorter version. If the\n"
             "current description is empty, draft a concise one-sentence description.\n"
@@ -293,6 +289,9 @@ def _build_plan_input(goal: str, target=None) -> str:
     if _wants_grid(goal):
         columns = _parse_grid_columns(goal)
         lines.append(f"Hint: User wants a grid layout with {columns} columns.")
+    teaser_href = _extract_teaser_href(goal)
+    if re.search(r"\bteaser\b", goal, re.IGNORECASE) and teaser_href:
+        lines.append(f'Hint: User wants a teaser block with href "{teaser_href}". Use "href" not "url".')
     return "\n".join(lines)
 
 
@@ -545,6 +544,18 @@ def _extract_teaser_href(text: str, target=None) -> Optional[str]:
         candidate = link_match.group(1).rstrip(".,;")
         if candidate.startswith("http") or candidate.startswith("/"):
             return candidate
+    # German patterns: "auf /path verlinkt", "verlinkt auf /path"
+    de_match = re.search(
+        r"(?:auf|to)\s+(/[^\s,;]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if de_match:
+        return de_match.group(1).rstrip(".,;")
+    # Fallback: bare relative path in the text
+    path_match = re.search(r"(?:^|\s)(/[a-zA-Z0-9_\-/]+)", text)
+    if path_match:
+        return path_match.group(1).rstrip(".,;")
     target_url = None
     if target is not None:
         if isinstance(target, dict):
@@ -598,8 +609,6 @@ def _has_block_type(actions: List[Dict[str, Any]], block_type: str) -> bool:
 def _maybe_add_teaser_action(goal: str, target, actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not isinstance(goal, str):
         return actions
-    if _has_teaser_action(actions):
-        return actions
     if not re.search(r"\bteaser\b", goal, re.IGNORECASE):
         return actions
 
@@ -619,7 +628,29 @@ def _maybe_add_teaser_action(goal: str, target, actions: List[Dict[str, Any]]) -
     if custom_requested and teaser_description:
         teaser_payload["description"] = teaser_description
 
-    actions.append({"type": "insert_block", "payload": {"block": teaser_payload}})
+    correct_teaser = {"type": "insert_block", "payload": {"block": teaser_payload}}
+
+    # Replace existing LLM teaser (may have wrong fields like url instead of href)
+    replaced = False
+    for i, a in enumerate(actions):
+        if (
+            a.get("type") == "insert_block"
+            and isinstance(a.get("payload"), dict)
+            and isinstance(a["payload"].get("block"), dict)
+            and a["payload"]["block"].get("@type") == "teaser"
+        ):
+            # Preserve any LLM-provided title/description if we don't have one
+            existing_block = a["payload"]["block"]
+            if not teaser_payload.get("title") and existing_block.get("title"):
+                teaser_payload["title"] = existing_block["title"]
+            if not teaser_payload.get("description") and existing_block.get("description"):
+                teaser_payload["description"] = existing_block["description"]
+            actions[i] = correct_teaser
+            replaced = True
+            break
+
+    if not replaced:
+        actions.append(correct_teaser)
     return actions
 
 
@@ -938,6 +969,12 @@ def _normalize_action(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                     block = _build_grid_block(columns, heading, body)
                 else:
                     block["columns"] = columns
+            elif block_type == "teaser":
+                # Normalize LLM field: url → href
+                if "href" not in block and "url" in block:
+                    block["href"] = block.pop("url")
+                if "href" not in block and "link" in block:
+                    block["href"] = block.pop("link")
             return {"type": "insert_block", "payload": {"block": block}}
     elif action_type == "translate_content":
         target_language = payload.get("target_language") or action.get("target_language")
