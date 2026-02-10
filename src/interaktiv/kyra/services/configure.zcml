@@ -125,4 +125,12 @@
         permission="interaktiv.kyra.actions.apply"
     />
 
+    <plone:service
+        method="GET"
+        name="@ai-translation-status"
+        factory=".ai_actions.AITranslationStatusService"
+        for="*"
+        permission="zope2.View"
+    />
+
 </configure>

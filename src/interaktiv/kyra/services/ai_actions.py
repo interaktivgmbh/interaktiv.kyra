@@ -2703,3 +2703,61 @@ class AIActionsService(ServiceBase):
             "reload": True,
             "report": report,
         }
+
+
+# After a sync, both source and translation get reindexed in the same
+# request, so their timestamps can be nearly identical.
+# 60-second window avoids false "outdated" flags right after a sync.
+_SYNC_TOLERANCE_SECONDS = 60
+
+
+class AITranslationStatusService(ServiceBase):
+    """GET /@ai-translation-status — check if linked translations are outdated."""
+
+    def reply(self):
+        target = self.context
+        if IPloneSiteRoot.providedBy(target):
+            return {"translations": [], "outdated_count": 0}
+
+        try:
+            from plone.app.multilingual.interfaces import ITranslationManager
+        except ImportError:
+            return {"translations": [], "outdated_count": 0}
+
+        try:
+            manager = ITranslationManager(target)
+        except TypeError:
+            return {"translations": [], "outdated_count": 0}
+
+        translations = manager.get_translations() or {}
+        source_lang = target.Language() or "de"
+        source_modified = target.modified()
+
+        # Use POSIX timestamps (float seconds) for reliable comparison.
+        # DateTime.timeTime() returns seconds since epoch as a float.
+        source_ts = source_modified.timeTime()
+
+        result = []
+        for lang, trans_obj in translations.items():
+            if lang == source_lang:
+                continue
+            try:
+                trans_modified = trans_obj.modified()
+                trans_ts = trans_modified.timeTime()
+                is_outdated = (source_ts - trans_ts) > _SYNC_TOLERANCE_SECONDS
+                result.append({
+                    "language": lang,
+                    "title": trans_obj.Title() or "",
+                    "url": trans_obj.absolute_url(),
+                    "modified": trans_modified.ISO8601(),
+                    "is_outdated": is_outdated,
+                })
+            except Exception:
+                continue
+
+        return {
+            "source_language": source_lang,
+            "source_modified": source_modified.ISO8601(),
+            "translations": result,
+            "outdated_count": sum(1 for t in result if t["is_outdated"]),
+        }
