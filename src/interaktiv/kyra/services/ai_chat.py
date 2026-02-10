@@ -243,7 +243,7 @@ def _build_system_message(context_docs: Dict[str, Any]) -> str:
         "## Content rules",
         f"- Current mode: {mode}",
         "- Answer based ONLY on the provided context documents and any uploaded files.",
-        "- When relevant, cite your sources by mentioning the page title.",
+        "- When you use information from a context document, always mention its exact page title in your response so the reader knows where the information comes from.",
         "- If the answer cannot be found in the provided documents, clearly state that and suggest what the user could search for.",
         "- Do not invent or hallucinate information not present in the context.",
         "",
@@ -300,6 +300,62 @@ def _build_citations(context_docs: Dict[str, Any]) -> List[Dict[str, Any]]:
         if len(citations) >= 5:
             break
     return citations
+
+
+def _filter_citations_by_response(
+    citations: List[Dict[str, Any]],
+    response_text: str,
+    context_docs: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Keep only citations for sources actually referenced in the response."""
+    if not citations or not response_text:
+        return citations
+
+    mode = context_docs.get("mode") or "page"
+    page_doc = context_docs.get("page_doc") or {}
+    page_id = page_doc.get("id") or page_doc.get("url")
+    upload_ids = {
+        doc.get("id") or doc.get("url")
+        for doc in (context_docs.get("upload_docs") or [])
+        if doc.get("id") or doc.get("url")
+    }
+
+    response_lower = response_text.lower()
+    filtered = []
+
+    for citation in citations:
+        source_id = citation.get("source_id")
+        label = (citation.get("label") or "").strip()
+        url = citation.get("url") or ""
+
+        # Always keep the current page in page/summarize modes
+        if source_id == page_id and mode in ("page", "summarize"):
+            filtered.append(citation)
+            continue
+
+        # Always keep uploads (user explicitly provided these)
+        if source_id in upload_ids:
+            filtered.append(citation)
+            continue
+
+        # Keep if title is mentioned in response (min 3 chars to avoid false positives)
+        if label and len(label) >= 3 and label.lower() in response_lower:
+            filtered.append(citation)
+            continue
+
+        # Keep if URL is referenced in response
+        if url and url in response_text:
+            filtered.append(citation)
+            continue
+
+    # If filtering removed everything but we had citations, keep at least the page doc
+    if not filtered and citations and page_id:
+        for citation in citations:
+            if citation.get("source_id") == page_id:
+                filtered.append(citation)
+                break
+
+    return filtered
 
 
 def _build_used_context(context_docs: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -433,6 +489,7 @@ def _local_fallback_response(
     page_doc = context_docs.get("page_doc") or {}
     citations = _build_citations(context_docs)
     summary_text = _build_fallback_message(context_docs, last_query)
+    citations = _filter_citations_by_response(citations, summary_text, context_docs)
     logger.warning(
         "[KYRA AI LOCAL FALLBACK] page=%s summary_len=%s",
         page_doc.get("id"),
@@ -458,6 +515,7 @@ def _site_only_response(
         f"Try asking about {page_title} or provide a different search term."
     )
     citations = _build_citations(context_docs) if context_docs.get("mode") in ("summarize", "related", "search") else []
+    citations = _filter_citations_by_response(citations, text, context_docs)
     return {
         "message": {"role": "assistant", "content": text},
         "citations": citations,
@@ -963,9 +1021,13 @@ class AIChatService(ServiceBase):
                 lines.append(f"- {title}:")
                 lines.append(snippet)
                 lines.append("")
+            upload_content = "\n".join(lines)
+            upload_citations = _filter_citations_by_response(
+                _build_citations(context_docs), upload_content, context_docs
+            )
             return {
-                "message": {"role": "assistant", "content": "\n".join(lines)},
-                "citations": _build_citations(context_docs),
+                "message": {"role": "assistant", "content": upload_content},
+                "citations": upload_citations,
                 "capabilities": capabilities,
                 "used_context": _build_used_context(context_docs),
             }
@@ -1091,6 +1153,9 @@ class AIChatService(ServiceBase):
         for citation in context_citations:
             if citation.get("source_id") not in existing_ids:
                 final_citations.append(citation)
+        final_citations = _filter_citations_by_response(
+            final_citations, assistant_text, context_docs
+        )
 
         return {
             "conversation_id": conversation_id,
@@ -1225,6 +1290,7 @@ class AIChatService(ServiceBase):
                 _build_citations(context_docs),
                 _build_used_context(context_docs),
                 capabilities,
+                context_docs=context_docs,
             )
             return
 
@@ -1355,6 +1421,9 @@ class AIChatService(ServiceBase):
                     )
                     return
 
+                final_citations = _filter_citations_by_response(
+                    citations or context_citations, assembled, context_docs
+                )
                 yield _sse_event(
                     "done",
                     {
@@ -1363,7 +1432,7 @@ class AIChatService(ServiceBase):
                             "role": "assistant",
                             "content": assembled,
                         },
-                        "citations": citations or context_citations,
+                        "citations": final_citations,
                         "capabilities": capabilities,
                         "used_context": used_context,
                     },
@@ -1386,15 +1455,19 @@ class AIChatService(ServiceBase):
                     content_parts.append(delta)
                     yield _sse_event("token", {"delta": delta})
 
+        assembled_fallback = "".join(content_parts)
+        final_citations_fallback = _filter_citations_by_response(
+            citations or context_citations, assembled_fallback, context_docs
+        )
         yield _sse_event(
             "done",
             {
                 "conversation_id": conversation_id,
                 "message": {
                     "role": "assistant",
-                    "content": "".join(content_parts),
+                    "content": assembled_fallback,
                 },
-                "citations": citations or context_citations,
+                "citations": final_citations_fallback,
                 "capabilities": capabilities,
                 "used_context": used_context,
             },
@@ -1407,6 +1480,7 @@ class AIChatService(ServiceBase):
         context_citations: List[Dict[str, Any]],
         used_context: List[Dict[str, Any]],
         capabilities: Dict[str, Any],
+        context_docs: Optional[Dict[str, Any]] = None,
     ) -> Iterable[str]:
         assistant_text = _extract_assistant_text(gateway_data)
         citations = _extract_citations(gateway_data)
@@ -1420,12 +1494,17 @@ class AIChatService(ServiceBase):
         if citations:
             yield _sse_event("citations", {"citations": citations})
 
+        final_citations = citations or context_citations
+        if context_docs:
+            final_citations = _filter_citations_by_response(
+                final_citations, assistant_text, context_docs
+            )
         yield _sse_event(
             "done",
             {
                 "conversation_id": conversation_id,
                 "message": {"role": "assistant", "content": assistant_text},
-                "citations": citations or context_citations,
+                "citations": final_citations,
                 "capabilities": capabilities,
                 "used_context": used_context,
             },
