@@ -1923,6 +1923,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             if blocks_copy is not None:
                 existing.blocks = blocks_copy
                 existing.blocks_layout = copy.deepcopy(getattr(item, "blocks_layout", {}))
+                _ensure_blocks_struct(existing)
             if translated_title_value:
                 try:
                     new_id = idnormalizer.normalize(translated_title_value)
@@ -2264,6 +2265,8 @@ SKIP_TRANSLATION_FIELDS = {
     "src",
     "target",
     "uid",
+    "UID",
+    "id",
     "image_field",
     "scale",
     "size",
@@ -2281,6 +2284,26 @@ SKIP_TRANSLATION_FIELDS = {
     "gridCols",
     "gridSize",
     "grid",
+    # visual / rendering configuration – translating these breaks block layout
+    "styles",
+    "style",
+    "variation",
+    "template",
+    "theme",
+    "widget",
+    "field",
+    "mode",
+    "layout",
+    "position",
+    "color",
+    "backgroundColor",
+    "textAlign",
+    "display",
+    "hidden",
+    "required",
+    "fixed",
+    "reversed",
+    "inverted",
 }
 
 BLOCK_TEXT_FIELDS = {
