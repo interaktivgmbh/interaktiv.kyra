@@ -1,108 +1,88 @@
 from typing import Any, Dict, Optional, Tuple
 
 import requests
-
 from interaktiv.kyra.api.base import APIBase
 
 
 class Chat(APIBase):
-    def _chat_url(self) -> str:
-        gateway_url = (self.gateway_url or "").rstrip("/")
+
+    def _chat_url(self):
+        gateway_url = self.gateway_url
         if not gateway_url:
-            return ""
+            return ''
+        gateway_url = gateway_url.rstrip('/')
+        if gateway_url.endswith('/prompts'):
+            gateway_url = gateway_url[:len(gateway_url) - len('/prompts')]
+        return gateway_url + '/chat'
 
-        if gateway_url.endswith("/chat"):
-            return gateway_url
+    def _fallback_chat_url(self):
+        if not self.gateway_url:
+            return ''
+        return self.gateway_url.rstrip('/')
 
-        if gateway_url.endswith("/prompts"):
-            gateway_url = gateway_url[: -len("/prompts")]
-
-        return f"{gateway_url}/chat"
-
-    def _fallback_chat_url(self) -> str:
-        return (self.gateway_url or "").rstrip("/")
-
-    def _get_chat_headers(self, include_content_type: bool = True) -> Dict[str, str]:
-        headers: Dict[str, str] = {}
+    def _get_chat_headers(self, include_content_type=True):
+        headers = {}
         domain_id = self._get_domain_id()
         if domain_id:
-            headers["x-domain-id"] = domain_id
+            headers['x-domain-id'] = domain_id
         if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+            headers['Authorization'] = f'Bearer {self.token}'
         if include_content_type:
-            headers["Content-Type"] = "application/json"
+            headers['Content-Type'] = 'application/json'
         return headers
 
-    def send(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def send(self, payload) -> Dict[str, Any]:
         url = self._chat_url()
         headers = self._get_chat_headers()
         if not headers:
-            return {"error": "No headers available"}
+            return {'error': 'No headers available'}
 
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
             return response.json()
         except requests.HTTPError as e:
-            fallback = self._fallback_chat_url()
-            if fallback and fallback != url:
-                message = str(e).lower()
-                if "404" in message or "not found" in message:
-                    try:
-                        response = requests.post(
-                            fallback, headers=headers, json=payload, timeout=60
-                        )
-                        response.raise_for_status()
-                        return response.json()
-                    except Exception:
-                        return {"error": str(e)}
-            return {"error": str(e)}
+            message = str(e)
+            if '404' in message.lower() or 'not found' in message.lower():
+                fallback = self._fallback_chat_url()
+                try:
+                    response = requests.post(fallback, headers=headers, json=payload, timeout=60)
+                    response.raise_for_status()
+                    return response.json()
+                except Exception:
+                    pass
+            return {'error': message}
         except requests.Timeout:
-            return {"error": "Request timeout - please try again"}
+            return {'error': 'Request timeout - please try again'}
         except requests.ConnectionError:
-            return {"error": "Cannot connect to API service"}
+            return {'error': 'Cannot connect to API service'}
         except Exception as e:
-            return {"error": f"Request failed: {e}"}
+            return {'error': f'Request failed: {e}'}
 
-    def stream(
-        self, payload: Dict[str, Any]
-    ) -> Tuple[Optional[requests.Response], Optional[str]]:
+    def stream(self, payload):
         url = self._chat_url()
         headers = self._get_chat_headers()
-        if not headers:
-            return None, "No headers available"
-        headers["Accept"] = "text/event-stream"
+        if headers:
+            headers['Accept'] = 'text/event-stream'
 
         try:
-            response = requests.post(
-                url,
-                headers=headers,
-                json=payload,
-                stream=True,
-                timeout=60,
-            )
+            response = requests.post(url, headers=headers, json=payload, stream=True, timeout=60)
             response.raise_for_status()
-            return response, None
+            return response
         except requests.HTTPError as e:
-            message = str(e).lower()
-            fallback = self._fallback_chat_url()
-            if fallback and fallback != url and ("404" in message or "not found" in message):
+            message = str(e)
+            if '404' in message.lower() or 'not found' in message.lower():
+                fallback = self._fallback_chat_url()
                 try:
-                    response = requests.post(
-                        fallback,
-                        headers=headers,
-                        json=payload,
-                        stream=True,
-                        timeout=60,
-                    )
+                    response = requests.post(fallback, headers=headers, json=payload, stream=True, timeout=60)
                     response.raise_for_status()
-                    return response, None
+                    return response
                 except Exception:
-                    return None, str(e)
-            return None, str(e)
+                    pass
+            return {'error': message}
         except requests.Timeout:
-            return None, "Request timeout - please try again"
+            return {'error': 'Request timeout - please try again'}
         except requests.ConnectionError:
-            return None, "Cannot connect to API service"
+            return {'error': 'Cannot connect to API service'}
         except Exception as e:
-            return None, f"Request failed: {e}"
+            return {'error': f'Request failed: {e}'}

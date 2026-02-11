@@ -21,6 +21,7 @@ from persistent.mapping import PersistentMapping
 from plone import api
 from plone.base.interfaces import IPloneSiteRoot
 from plone.restapi.deserializer import json_body
+from plone.restapi.services import Service
 from zExceptions import BadRequest
 from zope.annotation.interfaces import IAnnotations
 from zope.component.hooks import setSite
@@ -2734,8 +2735,12 @@ class AIActionsService(ServiceBase):
 _SYNC_TOLERANCE_SECONDS = 60
 
 
-class AITranslationStatusService(ServiceBase):
-    """GET /@ai-translation-status — check if linked translations are outdated."""
+class AITranslationStatusService(Service):
+    """GET /@ai-translation-status — check if linked translations are outdated.
+
+    Does NOT require KyraAPI / gateway credentials — only reads local
+    translation metadata so it works even before the add-on is fully configured.
+    """
 
     def reply(self):
         target = self.context

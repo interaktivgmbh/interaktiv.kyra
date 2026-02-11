@@ -14,32 +14,9 @@
         layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
     />
 
-    <!-- Controlpanel AI Prompt Manager -->
-    <browser:page
-        name="ai-prompt-manager"
-        for="plone.base.interfaces.IPloneSiteRoot"
-        class=".prompt_manager.PromptManagerView"
-        permission="interaktiv.kyra.manage.settings"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
-    />
-
-    <!-- Controlpanel AI Prompt Edit -->
-    <browser:page
-        name="ai-prompt-edit"
-        for="plone.base.interfaces.IPloneSiteRoot"
-        class=".prompt_edit.PromptEditView"
-        permission="interaktiv.kyra.manage.settings"
-        layer="interaktiv.kyra.interfaces.IInteraktivKyraLayer"
-    />
-
     <adapter
       factory=".ai_assistant.AIAssistantSettingsConfigletPanel"
       name="ai-assist-settings"
     />
-
-    <adapter
-      factory=".prompt_manager.PromptManagerConfigletPanel"
-      name="ai-prompt-manager"
-      />
 
 </configure>

@@ -1,6 +1,8 @@
-from interaktiv.kyra.services.base import ServiceBase
 from plone import api
 from plone.base.interfaces import IPloneSiteRoot
+from plone.protect.interfaces import IDisableCSRFProtection
+from plone.restapi.services import Service
+from zope.interface import alsoProvides
 
 
 def _resolve_context(context, request):
@@ -43,8 +45,16 @@ def _capabilities_for(context) -> dict:
     }
 
 
-class AICapabilities(ServiceBase):
-    """GET /++api++/@ai-capabilities"""
+class AICapabilities(Service):
+    """GET /++api++/@ai-capabilities
+
+    Does NOT require KyraAPI / gateway credentials — only checks local
+    Plone permissions so it works even before the add-on is fully configured.
+    """
+
+    def __init__(self, context, request):
+        super().__init__(context, request)
+        alsoProvides(self.request, IDisableCSRFProtection)
 
     def reply(self):
         context = _resolve_context(self.context, self.request)

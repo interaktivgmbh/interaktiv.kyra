@@ -36,16 +36,4 @@
         name="interaktiv.kyra-hiddenprofiles"
     />
 
-    <plone:static
-        type="theme"
-        directory="static"
-        name="interaktiv.kyra"
-    />
-
-    <plone:static
-        type="theme"
-        directory="components"
-        name="interaktiv.kyra.components"
-    />
-
 </configure>

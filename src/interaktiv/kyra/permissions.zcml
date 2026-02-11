@@ -6,46 +6,6 @@
   />
 
   <permission
-      id="interaktiv.kyra.prompts.get"
-      title="AIAssistant: Get Prompts"
-  />
-
-  <permission
-      id="interaktiv.kyra.prompts.post"
-      title="AIAssistant: Post Prompts"
-  />
-
-  <permission
-      id="interaktiv.kyra.prompts.create"
-      title="AIAssistant: Create Prompt"
-  />
-
-  <permission
-      id="interaktiv.kyra.prompts.update"
-      title="AIAssistant: Update Prompt"
-  />
-
-  <permission
-      id="interaktiv.kyra.prompts.delete"
-      title="AIAssistant: Delete Prompt"
-  />
-
-  <permission
-      id="interaktiv.kyra.files.get"
-      title="AIAssistant: Get Files"
-  />
-
-  <permission
-      id="interaktiv.kyra.files.upload"
-      title="AIAssistant: Upload File"
-  />
-
-  <permission
-      id="interaktiv.kyra.files.delete"
-      title="AIAssistant: Delete File"
-  />
-
-  <permission
       id="interaktiv.kyra.actions.apply"
       title="AIAssistant: Apply Actions"
   />

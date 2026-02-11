@@ -6,8 +6,12 @@ from interaktiv.kyra.api.types import PromptData, InstructionData
 
 class Prompts(APIBase):
 
-    def list(self, page: int = 1, size: int = 100) -> Dict[str, Any]:
-        params = {'page': page, 'size': size}
+    def list(self, page=None, size=None) -> Dict[str, Any]:
+        params = {}
+        if page is not None:
+            params['page'] = page
+        if size is not None:
+            params['size'] = size
         response = self.request('GET', self.gateway_url, params=params)
         return response
 
@@ -15,11 +19,11 @@ class Prompts(APIBase):
         url = f'{self.gateway_url}/{prompt_id}'
         return self.request('GET', url)
 
-    def create(self, payload: PromptData) -> Dict[str, Any]:
+    def create(self, payload: dict) -> Dict[str, Any]:
         response = self.request('POST', self.gateway_url, json=payload)
         return response
 
-    def update(self, prompt_id: str, payload: PromptData) -> Dict[str, Any]:
+    def update(self, prompt_id: str, payload: dict) -> Dict[str, Any]:
         url = f'{self.gateway_url}/{prompt_id}'
         response = self.request('PATCH', url, json=payload)
         return response
@@ -29,7 +33,7 @@ class Prompts(APIBase):
         response = self.request('DELETE', url)
         return response
 
-    def apply(self, prompt_id: str, payload: InstructionData) -> Dict[str, Any]:
+    def apply(self, prompt_id: str, payload: dict) -> Dict[str, Any]:
         url = f'{self.gateway_url}/{prompt_id}/apply'
         response = self.request('POST', url, json=payload)
         return response

@@ -4,12 +4,6 @@
     i18n_domain="interaktiv.kyra">
 
   <browser:page
-      name="ai-assistant-translations"
-      for="*"
-      class=".translations.TranslationsView"
-      permission="zope2.View"
-  />
-  <browser:page
       name="ai-chat-translations"
       for="*"
       class=".ai_chat_translations.AIChatTranslationsView"

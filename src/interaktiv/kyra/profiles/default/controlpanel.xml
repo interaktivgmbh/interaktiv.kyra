@@ -18,18 +18,4 @@
         <permission>Manage portal</permission>
     </configlet>
 
-    <!-- AI Prompt Manager -->
-    <configlet
-        title="trans_label_controlpanel_ai_prompt_manager"
-        action_id="ai-prompt-manager"
-        appId="interaktiv.kyra"
-        category="Products"
-        condition_expr=""
-        icon_expr="string:chat-dots"
-        url_expr="string:${portal_url}/@@ai-prompt-manager"
-        visible="True"
-        i18n:attributes="title">
-        <permission>Manage portal</permission>
-    </configlet>
-
 </object>
