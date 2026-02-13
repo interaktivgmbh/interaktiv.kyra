@@ -2559,7 +2559,15 @@ def _translate_slate_node(translator: Chat, node: Any, source_lang: str, target_
     if not isinstance(node, dict):
         return
     if "text" in node and isinstance(node["text"], str):
-        node["text"] = _translate_text(translator, node["text"], source_lang, target_lang)
+        original = node["text"]
+        # Preserve leading/trailing whitespace around translated text.
+        # Slate stores text fragments separately (e.g. "Click " + link + " here"),
+        # and whitespace at boundaries is significant for correct spacing.
+        if original.strip():
+            leading = original[: len(original) - len(original.lstrip())]
+            trailing = original[len(original.rstrip()) :]
+            translated = _translate_text(translator, original.strip(), source_lang, target_lang)
+            node["text"] = leading + translated.strip() + trailing
     children = node.get("children")
     if isinstance(children, list):
         for child in children:
