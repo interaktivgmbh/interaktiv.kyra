@@ -9,7 +9,7 @@ REQUIRES_PYTHON = '>=3.11'
 VERSION = '1.0.0'
 REQUIRED = [
     'setuptools',
-    'Plone>=6.1',
+    'Plone>=6.0',
     'PyPDF2',
     'pytesseract',
     'Pillow',

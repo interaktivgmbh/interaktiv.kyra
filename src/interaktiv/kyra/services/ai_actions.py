@@ -1749,13 +1749,14 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     skipped += 1
                     continue
                 if existing is None:
-                    existing = manager.add_translation(target_lang)
+                    manager.add_translation(target_lang)
+                    existing = manager.get_translation(target_lang)
                     if existing:
                         status = "created"
                         created += 1
                     else:
                         logger.warning(
-                            "[KYRA AI TRANSLATE] manager.add_translation returned None for %s -> %s",
+                            "[KYRA AI TRANSLATE] manager.add_translation did not create translation for %s -> %s",
                             _rel_path(item),
                             target_lang,
                         )
@@ -1829,6 +1830,21 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         )
                         failed += 1
                         continue
+                # Register fallback-created content as PAM translation
+                if existing is not None and manager is not None:
+                    try:
+                        from plone.app.multilingual.interfaces import ILanguage
+                        ILanguage(existing).set_language(target_lang)
+                        manager.register_translation(target_lang, existing)
+                        logger.info(
+                            "[KYRA AI TRANSLATE] registered fallback copy as PAM translation %s -> %s",
+                            _rel_path(item),
+                            _rel_path(existing),
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[KYRA AI TRANSLATE] failed to register PAM translation: %s", exc
+                        )
             else:
                 status = "updated"
                 updated += 1
@@ -2732,7 +2748,7 @@ class AIActionsService(ServiceBase):
 # After a sync, both source and translation get reindexed in the same
 # request, so their timestamps can be nearly identical.
 # 60-second window avoids false "outdated" flags right after a sync.
-_SYNC_TOLERANCE_SECONDS = 60
+_SYNC_TOLERANCE_SECONDS = 5
 
 
 class AITranslationStatusService(Service):
@@ -2773,6 +2789,13 @@ class AITranslationStatusService(Service):
                 trans_modified = trans_obj.modified()
                 trans_ts = trans_modified.timeTime()
                 is_outdated = (source_ts - trans_ts) > _SYNC_TOLERANCE_SECONDS
+                logger.info(
+                    "[KYRA AI STATUS] lang=%s trans_modified=%s diff=%.1fs is_outdated=%s",
+                    lang,
+                    trans_modified.ISO8601(),
+                    source_ts - trans_ts,
+                    is_outdated,
+                )
                 result.append({
                     "language": lang,
                     "title": trans_obj.Title() or "",
