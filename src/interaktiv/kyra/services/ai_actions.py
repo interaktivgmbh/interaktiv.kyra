@@ -2292,7 +2292,6 @@ SKIP_TRANSLATION_FIELDS = {
     "className",
     "gradient",
     "pattern",
-    "columns",
     "rows",
     "value",  # slate handled separately
     "children",  # handled via slate recursion
@@ -2342,6 +2341,32 @@ BLOCK_TEXT_FIELDS = {
     "@kitconcept/volto-button-block": ["title", "text"],
     "@kitconcept/volto-light-theme": ["title", "text", "html"],
     "@eeacms/volto-block-divider": ["title", "description"],
+    # FZJ project-specific blocks
+    "headline": ["title"],
+    "tabBlock": ["headline"],
+    "sliderNew": [],  # slides array handled via BLOCK_NESTED_ARRAYS
+    "quote": ["author", "additional_information"],
+    "parallaxBlock": ["text"],
+    "highlightTeaser": ["title", "description", "linkTitle"],
+    "highlightTeaserParallax": ["title", "description", "linkTitle"],
+    "highlightTeaserWithoutButton": ["title", "description"],
+    "teaserWithLink": ["title", "description", "button"],
+    "introduction": ["heading"],
+    "aktuelles": ["headline", "title", "head_title", "description", "ttitle", "thead_title", "tdescription"],
+    "institutslider": ["title"],  # slides array handled via BLOCK_NESTED_ARRAYS
+    "members": ["title"],
+    "memberList": ["headline"],
+    "icon": ["heading", "description"],
+    "socialMedia": ["headline", "description", "ydescription"],
+}
+
+# Blocks with nested arrays whose items contain translatable text fields.
+# Format: block_type -> [(array_field, [translatable_subfields])]
+BLOCK_NESTED_ARRAYS = {
+    "tabBlock": [("columns", ["title"])],
+    "sliderNew": [("slides", ["head_title", "title", "description"])],
+    "institutslider": [("slides", ["title", "description"])],
+    "teaserWithLink": [("links", ["title"])],
 }
 
 URL_PATTERN = re.compile(r"^(https?://|/|resolveuid|data:)", re.IGNORECASE)
@@ -2416,6 +2441,20 @@ def _translate_block_special_fields(
             _translate_block_strings(translator, value, source_lang, target_lang)
         elif isinstance(value, list):
             _translate_block_list(translator, value, source_lang, target_lang, key)
+
+    # Translate nested arrays (slides, columns, links, etc.)
+    nested_defs = BLOCK_NESTED_ARRAYS.get(block_type, [])
+    for array_field, subfields in nested_defs:
+        items = block.get(array_field)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            for sf in subfields:
+                val = item.get(sf)
+                if isinstance(val, str) and val.strip() and not _looks_like_url(val):
+                    item[sf] = _translate_text(translator, val, source_lang, target_lang)
 
 
 def _translate_block_dict(
