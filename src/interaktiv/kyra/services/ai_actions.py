@@ -2275,6 +2275,7 @@ def _is_boilerplate_translation(text: str) -> bool:
 
 SKIP_TRANSLATION_FIELDS = {
     "@type",
+    "@id",
     "type",
     "plaintext",
     "url",
@@ -2284,6 +2285,7 @@ SKIP_TRANSLATION_FIELDS = {
     "uid",
     "UID",
     "id",
+    "image",
     "image_field",
     "scale",
     "size",
@@ -2356,7 +2358,7 @@ BLOCK_TEXT_FIELDS = {
     "institutslider": ["title"],  # slides array handled via BLOCK_NESTED_ARRAYS
     "members": ["title"],
     "memberList": ["headline"],
-    "icon": ["heading", "description"],
+    "icon": ["heading"],  # description is richtext {data: "<html>"}, handled via BLOCK_RICHTEXT_HTML_FIELDS
     "socialMedia": ["headline", "description", "ydescription"],
 }
 
@@ -2367,6 +2369,30 @@ BLOCK_NESTED_ARRAYS = {
     "sliderNew": [("slides", ["head_title", "title", "description"])],
     "institutslider": [("slides", ["title", "description"])],
     "teaserWithLink": [("links", ["title"])],
+}
+
+# Block types that store Slate content in their top-level `value` field,
+# just like the "slate" block type does.
+BLOCKS_WITH_SLATE_VALUE = {"quote", "textPillWithStyle"}
+
+# Block types that embed Slate sub-objects in named fields.
+# Format: block_type -> [field_name, ...]
+# Each field is an object with a `value` key containing Slate nodes.
+BLOCK_SLATE_SUBOBJECTS = {
+    "introduction": ["about", "topics"],
+}
+
+# Block types that use dynamic indexed Slate fields like "text-0", "text-1".
+# Format: block_type -> (prefix, array_field_for_count)
+# The translator iterates the array_field items and looks for "{prefix}-{index}".
+BLOCK_DYNAMIC_SLATE_FIELDS = {
+    "tabBlock": ("text", "columns"),
+}
+
+# Block types where a field stores an HTML richtext object { data: "<html>" }.
+# Format: block_type -> [field_name, ...]
+BLOCK_RICHTEXT_HTML_FIELDS = {
+    "icon": ["description"],
 }
 
 URL_PATTERN = re.compile(r"^(https?://|/|resolveuid|data:)", re.IGNORECASE)
@@ -2389,8 +2415,19 @@ def _translate_block_strings(
     target_lang: str,
     parent_key: Optional[str] = None,
 ):
+    block_type = block.get("@type", "")
+    # Fields already handled by dedicated handlers — skip to avoid double-translation.
+    richtext_handled = set(BLOCK_RICHTEXT_HTML_FIELDS.get(block_type, []))
+    slate_sub_handled = set(BLOCK_SLATE_SUBOBJECTS.get(block_type, []))
+    dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(block_type)
+    dynamic_prefix = dynamic_def[0] if dynamic_def else None
+
     for key, value in list(block.items()):
         if key in SKIP_TRANSLATION_FIELDS:
+            continue
+        if key in richtext_handled or key in slate_sub_handled:
+            continue
+        if dynamic_prefix and key.startswith(f"{dynamic_prefix}-"):
             continue
         if isinstance(value, str):
             if value.strip() and not _looks_like_url(value):
@@ -2457,6 +2494,14 @@ def _translate_block_special_fields(
                     item[sf] = _translate_text(translator, val, source_lang, target_lang)
 
 
+def _translate_slate_value(translator: Chat, block: Dict[str, Any], source_lang: str, target_lang: str):
+    """Translate Slate nodes stored in block['value']."""
+    value = block.get("value")
+    if isinstance(value, list):
+        for node in value:
+            _translate_slate_node(translator, node, source_lang, target_lang)
+
+
 def _translate_block_dict(
     translator: Chat,
     block: Dict[str, Any],
@@ -2469,14 +2514,37 @@ def _translate_block_dict(
     if btype in ("text",):
         html = block.get("text") or ""
         block["text"] = _translate_text(translator, html, source_lang, target_lang)
-    elif btype in ("slate",):
-        value = block.get("value")
-        if isinstance(value, list):
-            for node in value:
-                _translate_slate_node(translator, node, source_lang, target_lang)
+    elif btype in ("slate",) or btype in BLOCKS_WITH_SLATE_VALUE:
+        _translate_slate_value(translator, block, source_lang, target_lang)
     elif btype == "html":
         html = block.get("html") or ""
         block["html"] = _translate_text(translator, html, source_lang, target_lang, strip_html=False)
+
+    # Translate Slate sub-objects (e.g. introduction.about, introduction.topics)
+    slate_sub_fields = BLOCK_SLATE_SUBOBJECTS.get(btype, [])
+    for field in slate_sub_fields:
+        sub = block.get(field)
+        if isinstance(sub, dict):
+            _translate_slate_value(translator, sub, source_lang, target_lang)
+
+    # Translate dynamic indexed Slate fields (e.g. tabBlock "text-0", "text-1")
+    dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(btype)
+    if dynamic_def:
+        prefix, array_field = dynamic_def
+        items = block.get(array_field)
+        if isinstance(items, list):
+            for idx in range(len(items)):
+                key = f"{prefix}-{idx}"
+                sub = block.get(key)
+                if isinstance(sub, dict):
+                    _translate_slate_value(translator, sub, source_lang, target_lang)
+
+    # Translate richtext HTML fields (e.g. icon description.data)
+    richtext_fields = BLOCK_RICHTEXT_HTML_FIELDS.get(btype, [])
+    for field in richtext_fields:
+        obj = block.get(field)
+        if isinstance(obj, dict) and isinstance(obj.get("data"), str) and obj["data"].strip():
+            obj["data"] = _translate_text(translator, obj["data"], source_lang, target_lang, strip_html=False)
 
     _translate_block_strings(translator, block, source_lang, target_lang)
     _translate_block_special_fields(translator, block, source_lang, target_lang)
