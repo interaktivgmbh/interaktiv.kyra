@@ -509,6 +509,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                             logger.debug("[KYRA AI] could not apply %s", kind)
 
             if blocks_copy is not None:
+                _translate_links_in_blocks(blocks_copy, target_lang)
                 existing.blocks = blocks_copy
                 existing.blocks_layout = copy.deepcopy(getattr(item, "blocks_layout", {}))
                 _ensure_blocks_struct(existing)
@@ -1086,6 +1087,115 @@ def _translate_block_dict(
 def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str, target_lang: str):
     for block in blocks.values():
         _translate_block_dict(translator, block, source_lang, target_lang)
+
+
+def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[str]:
+    if not isinstance(path, str) or not path.strip():
+        return None
+    try:
+        portal = api.portal.get()
+        portal_url = portal.absolute_url()
+        lookup = path
+        if lookup.startswith("http") and lookup.startswith(portal_url):
+            lookup = lookup[len(portal_url):]
+        uid = None
+        if "resolveuid/" in lookup:
+            uid = lookup.split("resolveuid/")[-1].split("/")[0].strip()
+        obj = None
+        if uid:
+            obj = api.content.get(UID=uid)
+        elif lookup.startswith("/"):
+            obj = api.content.get(path=lookup.lstrip("/"))
+        if obj is None:
+            logger.info("[KYRA AI LINK] could not resolve object for path=%s uid=%s", path, uid)
+            return None
+        from plone.app.multilingual.interfaces import ITranslationManager
+        manager = ITranslationManager(obj)
+        translated = manager.get_translation(target_lang)
+        if translated is None:
+            logger.info("[KYRA AI LINK] no translation found for %s -> %s", path, target_lang)
+            return None
+        trans_url = translated.absolute_url()
+        trans_path = trans_url[len(portal_url):] if trans_url.startswith(portal_url) else trans_url
+        if uid:
+            trans_uid = getattr(translated, "UID", lambda: None)()
+            if trans_uid:
+                logger.info("[KYRA AI LINK] resolved %s -> resolveuid/%s", path, trans_uid)
+                return f"../resolveuid/{trans_uid}"
+        logger.info("[KYRA AI LINK] resolved %s -> %s", path, trans_path)
+        return trans_path
+    except Exception as exc:
+        logger.warning("[KYRA AI LINK] error resolving %s: %s", path, exc)
+        return None
+
+
+def _translate_slate_link(node: Dict[str, Any], target_lang: str):
+    node_type = node.get("type")
+    logger.info("[KYRA AI LINK] processing slate node type=%s data=%s", node_type, {k: v for k, v in node.items() if k != "children"})
+    if node_type == "link":
+        data = node.get("data")
+        if isinstance(data, dict):
+            url = data.get("url")
+            if isinstance(url, str):
+                translated_path = _resolve_internal_link_translation(url, target_lang)
+                if translated_path:
+                    data["url"] = translated_path
+    elif node_type == "a":
+        data = node.get("data") or {}
+        link = data.get("link") or {}
+        internal = link.get("internal") or {}
+        internal_links = internal.get("internal_link")
+        if isinstance(internal_links, list) and internal_links:
+            item = internal_links[0]
+            if isinstance(item, dict):
+                path = item.get("@id")
+                if isinstance(path, str):
+                    translated_path = _resolve_internal_link_translation(path, target_lang)
+                    if translated_path:
+                        item["@id"] = translated_path
+        url = node.get("url")
+        if isinstance(url, str):
+            translated_path = _resolve_internal_link_translation(url, target_lang)
+            if translated_path:
+                node["url"] = translated_path
+
+
+def _translate_links_in_blocks(blocks: Dict[str, Any], target_lang: str):
+    for block in blocks.values():
+        if not isinstance(block, dict):
+            continue
+        _translate_links_in_value(block.get("value"), target_lang)
+        for field in BLOCK_SLATE_SUBOBJECTS.get(block.get("@type", ""), []):
+            sub = block.get(field)
+            if isinstance(sub, dict):
+                _translate_links_in_value(sub.get("value"), target_lang)
+        dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(block.get("@type", ""))
+        if dynamic_def:
+            prefix, array_field = dynamic_def
+            items = block.get(array_field)
+            if isinstance(items, list):
+                for idx in range(len(items)):
+                    sub = block.get(f"{prefix}-{idx}")
+                    if isinstance(sub, dict):
+                        _translate_links_in_value(sub.get("value"), target_lang)
+
+
+def _translate_links_in_value(value: Any, target_lang: str):
+    if not isinstance(value, list):
+        return
+    for node in value:
+        _translate_links_in_node(node, target_lang)
+
+
+def _translate_links_in_node(node: Any, target_lang: str):
+    if not isinstance(node, dict):
+        return
+    if node.get("type") in ("link", "a"):
+        _translate_slate_link(node, target_lang)
+    children = node.get("children")
+    if isinstance(children, list):
+        for child in children:
+            _translate_links_in_node(child, target_lang)
 
 
 def _translate_slate_node(translator: Chat, node: Any, source_lang: str, target_lang: str):
