@@ -734,7 +734,8 @@ def _translate_text(
         if translated:
             logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
             cleaned = _strip_basic_html(translated) if strip_html else translated
-            if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
+            stripped = _strip_basic_html(cleaned) if strip_html else cleaned
+            if _is_boilerplate_translation(stripped, text_for_translation):
                 logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                 return text_for_translation
             return cleaned
@@ -771,7 +772,7 @@ def _translate_text(
                 if isinstance(content, str) and content.strip():
                     logger.info("[KYRA AI] Translation message.content len=%s", len(content.strip()))
                     cleaned = _strip_basic_html(content.strip()) if strip_html else content.strip()
-                    if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
+                    if _is_boilerplate_translation(cleaned, text_for_translation):
                         logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                         return text_for_translation
                     return cleaned
@@ -780,7 +781,7 @@ def _translate_text(
                 if isinstance(value, str) and value.strip():
                     logger.info("[KYRA AI] Translation %s len=%s", key, len(value.strip()))
                     cleaned = _strip_basic_html(value.strip()) if strip_html else value.strip()
-                    if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
+                    if _is_boilerplate_translation(cleaned, text_for_translation):
                         logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                         return text_for_translation
                     return cleaned
@@ -791,7 +792,7 @@ def _translate_text(
                     if isinstance(val, str) and val.strip():
                         logger.info("[KYRA AI] Translation data.%s len=%s", key, len(val.strip()))
                         cleaned = _strip_basic_html(val.strip()) if strip_html else val.strip()
-                        if _is_boilerplate_translation(_strip_basic_html(cleaned)) if strip_html else _is_boilerplate_translation(cleaned):
+                        if _is_boilerplate_translation(cleaned, text_for_translation):
                             logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
                             return text_for_translation
                         return cleaned
@@ -819,15 +820,26 @@ def _html_to_text(value: str) -> str:
     return cleaned.strip()
 
 
-def _is_boilerplate_translation(text: str) -> bool:
+def _is_boilerplate_translation(text: str, original: str = "") -> bool:
     if not isinstance(text, str):
         return False
     lowered = text.lower()
-    return (
+    if (
         "tinymce" in lowered
         or "modify the text according to the instruction" in lowered
         or "bitte ändern sie den text gemäß der anweisung" in lowered
-    )
+        or "please provide the text" in lowered
+        or "i will assist you" in lowered
+        or "i'd be happy to help" in lowered
+        or "here is the translat" in lowered
+        or "i can help you" in lowered
+        or "what would you like" in lowered
+        or "sure, here" in lowered
+    ):
+        return True
+    if original and len(text) > len(original) * 3:
+        return True
+    return False
 
 
 SKIP_TRANSLATION_FIELDS = {
