@@ -9,7 +9,6 @@
 
     <include file="permissions.zcml"/>
     <include package=".controlpanels"/>
-    <include package=".views"/>
     <include package=".services"/>
     <include package=".upgrades"/>
 

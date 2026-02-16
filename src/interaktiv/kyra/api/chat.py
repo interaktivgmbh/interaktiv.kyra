@@ -59,30 +59,3 @@ class Chat(APIBase):
         except Exception as e:
             return {'error': f'Request failed: {e}'}
 
-    def stream(self, payload):
-        url = self._chat_url()
-        headers = self._get_chat_headers()
-        if headers:
-            headers['Accept'] = 'text/event-stream'
-
-        try:
-            response = requests.post(url, headers=headers, json=payload, stream=True, timeout=60)
-            response.raise_for_status()
-            return response
-        except requests.HTTPError as e:
-            message = str(e)
-            if '404' in message.lower() or 'not found' in message.lower():
-                fallback = self._fallback_chat_url()
-                try:
-                    response = requests.post(fallback, headers=headers, json=payload, stream=True, timeout=60)
-                    response.raise_for_status()
-                    return response
-                except Exception:
-                    pass
-            return {'error': message}
-        except requests.Timeout:
-            return {'error': 'Request timeout - please try again'}
-        except requests.ConnectionError:
-            return {'error': 'Cannot connect to API service'}
-        except Exception as e:
-            return {'error': f'Request failed: {e}'}
