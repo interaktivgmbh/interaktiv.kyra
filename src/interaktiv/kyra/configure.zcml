@@ -10,6 +10,7 @@
     <include file="permissions.zcml"/>
     <include package=".controlpanels"/>
     <include package=".services"/>
+    <include package=".views"/>
     <include package=".upgrades"/>
 
     <genericsetup:registerProfile
