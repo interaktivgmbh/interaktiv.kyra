@@ -63,15 +63,20 @@ def _derive_actions(translate_opts: Optional[Dict[str, Any]] = None) -> List[Dic
     target_lang = translate_opts.get("target_language") if translate_opts else None
     mode = translate_opts.get("mode") if translate_opts else None
     overwrite = bool(translate_opts.get("overwrite")) if translate_opts else False
+    incremental = bool(translate_opts.get("incremental")) if translate_opts else False
+
+    payload = {
+        "target_language": target_lang or "en",
+        "mode": mode or "single",
+        "overwrite": overwrite,
+    }
+    if incremental:
+        payload["incremental"] = True
 
     return [
         {
             "type": "translate_content",
-            "payload": {
-                "target_language": target_lang or "en",
-                "mode": mode or "single",
-                "overwrite": overwrite,
-            },
+            "payload": payload,
         }
     ]
 
@@ -180,13 +185,15 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
     target_language = payload.get("target_language")
     mode = payload.get("mode", "single")
     overwrite = bool(payload.get("overwrite"))
+    incremental = bool(payload.get("incremental"))
     translator = Chat()
     gateway_available = bool(translator.gateway_url and translator._get_headers())
     logger.info(
-        "[KYRA AI TRANSLATE] start target=%s mode=%s overwrite=%s gateway=%s",
+        "[KYRA AI TRANSLATE] start target=%s mode=%s overwrite=%s incremental=%s gateway=%s",
         target_language,
         mode,
         overwrite,
+        incremental,
         "yes" if gateway_available else "no",
     )
 
@@ -474,23 +481,62 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     )
 
                 if hasattr(item, "blocks") and hasattr(item, "blocks_layout"):
-                    blocks_copy = copy.deepcopy(getattr(item, "blocks", {}))
-                    for block in blocks_copy.values():
-                        futures.append(
-                            (
-                                "block",
-                                executor.submit(
-                                    lambda b: (setSite(portal), _translate_block_dict(
-                                        translator,
-                                        b,
-                                        source_lang,
-                                        target_lang,
-                                    ))[1],
-                                    block,
-                                ),
-                                None,
+                    source_blocks = getattr(item, "blocks", {})
+                    if incremental and existing is not None:
+                        # Incremental mode: only translate NEW blocks
+                        existing_blocks = getattr(existing, "blocks", {}) or {}
+                        existing_block_ids = set(existing_blocks.keys())
+                        source_block_ids = set(source_blocks.keys())
+                        new_block_ids = source_block_ids - existing_block_ids
+
+                        # Merge: start with existing translated blocks, add new ones
+                        blocks_copy = copy.deepcopy(dict(existing_blocks))
+                        for block_id in new_block_ids:
+                            new_block = copy.deepcopy(source_blocks[block_id])
+                            blocks_copy[block_id] = new_block
+                            futures.append(
+                                (
+                                    "block",
+                                    executor.submit(
+                                        lambda b: (setSite(portal), _translate_block_dict(
+                                            translator,
+                                            b,
+                                            source_lang,
+                                            target_lang,
+                                        ))[1],
+                                        new_block,
+                                    ),
+                                    None,
+                                )
                             )
+                        # Remove blocks deleted from source
+                        for removed_id in (existing_block_ids - source_block_ids):
+                            blocks_copy.pop(removed_id, None)
+                        logger.info(
+                            "[KYRA AI TRANSLATE] incremental: %d existing kept, %d new to translate, %d removed",
+                            len(existing_block_ids & source_block_ids),
+                            len(new_block_ids),
+                            len(existing_block_ids - source_block_ids),
                         )
+                    else:
+                        # Full mode: translate all blocks
+                        blocks_copy = copy.deepcopy(source_blocks)
+                        for block in blocks_copy.values():
+                            futures.append(
+                                (
+                                    "block",
+                                    executor.submit(
+                                        lambda b: (setSite(portal), _translate_block_dict(
+                                            translator,
+                                            b,
+                                            source_lang,
+                                            target_lang,
+                                        ))[1],
+                                        block,
+                                    ),
+                                    None,
+                                )
+                            )
 
                 for kind, future, setter in futures:
                     try:
