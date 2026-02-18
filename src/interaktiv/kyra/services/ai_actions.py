@@ -625,6 +625,28 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     len(mapped_tags),
                 )
 
+            # Copy topic vocabulary terms (controlled vocabulary — no translation needed)
+            try:
+                source_topics = getattr(item, "topic", None)
+                logger.info(
+                    "[KYRA AI TRANSLATE] source topics: %s (type=%s, has_topic=%s)",
+                    source_topics,
+                    type(source_topics).__name__,
+                    hasattr(existing, "topic"),
+                )
+                if source_topics is not None and len(source_topics) > 0:
+                    existing.topic = set(source_topics)
+                    existing._p_changed = True
+                    logger.info(
+                        "[KYRA AI TRANSLATE] copied %d topics to translation: %s",
+                        len(source_topics),
+                        source_topics,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[KYRA AI TRANSLATE] could not copy topics: %s", exc
+                )
+
             if hasattr(existing, "setLanguage"):
                 existing.setLanguage(target_lang)
             existing.reindexObject()
