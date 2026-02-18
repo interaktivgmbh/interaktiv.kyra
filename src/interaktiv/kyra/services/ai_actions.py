@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from AccessControl import Unauthorized
 from interaktiv.kyra import logger
+from interaktiv.kyra.services.ai_tag_mappings import _get_tag_mappings
 from interaktiv.kyra.api import Chat
 from interaktiv.kyra.api.prompts import Prompts
 from interaktiv.kyra.services.audit import log_ai_action
@@ -434,6 +435,16 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                 status,
             )
 
+        _META_TEXT_FIELDS = (
+            "preview_caption",
+            "image_caption",
+            "subtitle",
+            "head_title",
+            "footer_header",
+            "footer_text",
+            "short_header_text",
+        )
+
         try:
             blocks_copy = None
             source_title = getattr(item, "Title", lambda: "")()
@@ -477,6 +488,28 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                 source_description,
                             ),
                             existing.setDescription,
+                        )
+                    )
+
+                for field_name in _META_TEXT_FIELDS:
+                    source_val = getattr(item, field_name, None)
+                    if not source_val or not isinstance(source_val, str) or not source_val.strip():
+                        continue
+                    if not hasattr(existing, field_name):
+                        continue
+                    futures.append(
+                        (
+                            "meta",
+                            executor.submit(
+                                lambda txt, fn=field_name: (
+                                    setSite(portal),
+                                    (fn, _translate_text_with_retry(
+                                        translator, txt, source_lang, target_lang, True, True,
+                                    )),
+                                )[1],
+                                source_val,
+                            ),
+                            None,
                         )
                     )
 
@@ -553,6 +586,14 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                 translated_title_value = value_to_set
                         except Exception:
                             logger.debug("[KYRA AI] could not apply %s", kind)
+                    elif kind == "meta" and isinstance(result, tuple) and len(result) == 2:
+                        fn, translated = result
+                        if isinstance(translated, str) and translated.strip():
+                            try:
+                                setattr(existing, fn, translated)
+                                logger.info("[KYRA AI TRANSLATE] metadata field %s translated", fn)
+                            except Exception:
+                                logger.debug("[KYRA AI] could not set metadata field %s", fn)
 
             if blocks_copy is not None:
                 _translate_links_in_blocks(blocks_copy, target_lang)
@@ -585,6 +626,23 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     preview_field,
                                     _rel_path(item),
                                 )
+            # Map tags/subjects using mapping table
+            source_subjects = item.Subject() if callable(getattr(item, "Subject", None)) else ()
+            if source_subjects and hasattr(existing, "setSubject"):
+                tag_mappings = _get_tag_mappings()
+                mapped_tags = []
+                for tag in source_subjects:
+                    lang_map = tag_mappings.get(tag, {})
+                    translated_tag = lang_map.get(target_lang)
+                    if translated_tag:
+                        mapped_tags.append(translated_tag)
+                existing.setSubject(mapped_tags)
+                logger.info(
+                    "[KYRA AI TRANSLATE] tags mapped: %d source -> %d translated",
+                    len(source_subjects),
+                    len(mapped_tags),
+                )
+
             if hasattr(existing, "setLanguage"):
                 existing.setLanguage(target_lang)
             existing.reindexObject()
