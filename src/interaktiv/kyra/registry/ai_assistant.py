@@ -45,3 +45,11 @@ class IAIAssistantSchema(Interface):
         default='plone',
         required=True,
     )
+
+    deepl_api_key = schema.TextLine(
+        title=_('DeepL API Key'),
+        description=_('Authentication key for DeepL translation API'),
+        default='',
+        required=False,
+    )
+

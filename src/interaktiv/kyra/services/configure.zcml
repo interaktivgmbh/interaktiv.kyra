@@ -69,4 +69,28 @@
         permission="interaktiv.kyra.actions.apply"
     />
 
+    <plone:service
+        method="GET"
+        name="@ai-glossary"
+        factory=".deepl_translation.AIGlossaryService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-glossary"
+        factory=".deepl_translation.AIGlossaryService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="DELETE"
+        name="@ai-glossary"
+        factory=".deepl_translation.AIGlossaryService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
 </configure>

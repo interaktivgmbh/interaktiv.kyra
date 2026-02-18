@@ -16,6 +16,7 @@ REQUIRED = [
     'pdf2image',
     'striprtf',
     'pdfminer.six',
+    'deepl',
 ]
 EXTRAS = {
     'test': ['plone.app.testing']

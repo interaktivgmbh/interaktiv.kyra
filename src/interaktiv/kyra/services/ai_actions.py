@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from AccessControl import Unauthorized
 from interaktiv.kyra import logger
 from interaktiv.kyra.services.ai_tag_mappings import _get_tag_mappings
+from interaktiv.kyra.services.deepl_translation import deepl_translate_text, get_glossary_entries
 from interaktiv.kyra.api import Chat
-from interaktiv.kyra.api.prompts import Prompts
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
 from plone.i18n.normalizer import idnormalizer
@@ -30,7 +30,6 @@ from zope.interface import implementer
 from zope.publisher.interfaces import IPublishTraverse
 
 PLAN_STORAGE_KEY = "interaktiv.kyra.ai_actions_plans"
-TRANSLATE_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_translate_prompt_id_v1"
 TRANSLATION_MAX_CONCURRENCY_DEFAULT = 16
 TRANSLATION_TIMEOUT_DEFAULT = 60
 TRANSLATION_RETRIES_DEFAULT = 2
@@ -80,23 +79,6 @@ def _derive_actions(translate_opts: Optional[Dict[str, Any]] = None) -> List[Dic
             "payload": payload,
         }
     ]
-
-
-def _get_cached_translate_prompt_id() -> Optional[str]:
-    portal = api.portal.get()
-    annotations = IAnnotations(portal)
-    value = annotations.get(TRANSLATE_PROMPT_CACHE_KEY)
-    if isinstance(value, str) and value.strip():
-        return value
-    return None
-
-
-def _set_cached_translate_prompt_id(prompt_id: str) -> None:
-    if not isinstance(prompt_id, str) or not prompt_id.strip():
-        return
-    portal = api.portal.get()
-    annotations = IAnnotations(portal)
-    annotations[TRANSLATE_PROMPT_CACHE_KEY] = prompt_id
 
 
 def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -762,6 +744,35 @@ def _translate_text_with_retry(
     return text
 
 
+def _get_glossary_map(source_lang: str, target_lang: str) -> Dict[str, str]:
+    """Return glossary entries for the given language pair, or empty dict."""
+    try:
+        entries = get_glossary_entries(source_lang, target_lang) or {}
+        logger.info("[KYRA AI] glossary map for %s->%s: %d entries %s", source_lang, target_lang, len(entries), entries)
+        return entries
+    except Exception as exc:
+        logger.warning("[KYRA AI] glossary lookup failed for %s->%s: %s", source_lang, target_lang, exc)
+        return {}
+
+
+def _apply_glossary_substitution(text: str, glossary: Dict[str, str]) -> str:
+    """Replace glossary source terms in *text* with their target terms.
+
+    Replaces longest terms first so that e.g. "Forschungszentrum Jülich"
+    is matched before "Forschungszentrum".  Case-insensitive matching.
+    """
+    if not glossary or not text:
+        return text
+    original = text
+    sorted_entries = sorted(glossary.items(), key=lambda kv: len(kv[0]), reverse=True)
+    for src, tgt in sorted_entries:
+        pattern = re.compile(re.escape(src), re.IGNORECASE)
+        text = pattern.sub(tgt, text)
+    if text != original:
+        logger.info("[KYRA AI] glossary substitution applied: %r -> %r", original[:200], text[:200])
+    return text
+
+
 def _translate_text(
     translator: Chat,
     text: str,
@@ -772,178 +783,22 @@ def _translate_text(
 ) -> str:
     if not isinstance(text, str) or not text.strip():
         return text or ""
-    if not (translator.gateway_url and translator._get_headers()):
-        return text
 
-    text_for_translation = _html_to_text(text).strip() or text
+    # Pre-process: substitute glossary terms before translation
+    glossary = _get_glossary_map(source_lang, target_lang)
+    text = _apply_glossary_substitution(text, glossary)
 
-    if use_prompt:
-        prompt_client = Prompts()
-        prompt_id = _get_cached_translate_prompt_id()
-        logger.info(
-            "[KYRA AI] Translate text start | prompt_id=%s gateway=%s",
-            prompt_id or "none",
-            translator.gateway_url,
-        )
-        prompt_payload = {
-            "name": "Kyra Translate",
-            "prompt": (
-                "You are a translation engine. Translate the user input into the target language. "
-                "The target language is provided inside the input, prefixed by 'TARGET: <lang>'. "
-                "Always translate into that target language, preserve meaning and inline formatting/HTML, "
-                "do not add explanations, and return only the translated text."
-            ),
-            "categories": ["Translation"],
-            "actionType": "replace",
-            "metadata": {"categories": ["Translation"], "action": "replace"},
-        }
-        def _apply_prompt(pid: str, txt: str, tgt: str) -> Optional[str]:
-            try:
-                enriched = f"TARGET: {tgt}\n{text_for_translation}"
-                resp = prompt_client.apply(pid, {"query": enriched, "input": enriched, "params": {"language": tgt}})
-                if isinstance(resp, dict):
-                    if resp.get("error"):
-                        logger.warning("[KYRA AI] Translate prompt apply error: %s", resp.get("error"))
-                        return None
-                    for key in ("response", "result", "content", "text", "output"):
-                        val = resp.get(key)
-                        if isinstance(val, str) and val.strip():
-                            logger.info("[KYRA AI] Translation prompt %s len=%s", key, len(val.strip()))
-                            return val.strip()
-                    logger.warning("[KYRA AI] Translate prompt apply returned no text: %s", resp)
-                    return None
-            except Exception as exc:
-                logger.warning("[KYRA AI] Translate prompt apply failed: %s", exc)
-                return None
-
-        translated = None
-        if prompt_id:
-            translated = _apply_prompt(prompt_id, text_for_translation, target_lang)
-            if translated is None:
-                prompt_id = None
-
-        if prompt_id is None:
-            try:
-                created = prompt_client.create(prompt_payload)
-                new_id = created.get("id") or created.get("_id")
-                if new_id:
-                    _set_cached_translate_prompt_id(new_id)
-                    translated = _apply_prompt(new_id, text_for_translation, target_lang)
-                else:
-                    logger.warning("[KYRA AI] Translate prompt create returned no id: %s", created)
-            except Exception as exc:
-                logger.warning("[KYRA AI] Translate prompt create failed: %s", exc)
-                translated = None
-
-        if translated:
-            logger.info("[KYRA AI] Translate prompt success len=%s", len(translated))
-            cleaned = _strip_basic_html(translated) if strip_html else translated
-            stripped = _strip_basic_html(cleaned) if strip_html else cleaned
-            if _is_boilerplate_translation(stripped, text_for_translation):
-                logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
-                return text_for_translation
-            return cleaned
-
-    payload = {
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a translation engine. "
-                    f"Translate the user text from {source_lang or 'auto'} to {target_lang}. "
-                    "Preserve meaning and inline formatting/HTML, but do not add explanations. "
-                    "Return only the translated text."
-                ),
-            },
-            {"role": "user", "content": text},
-        ],
-        "context": {
-            "mode": "translation",
-            "source_language": source_lang or "",
-            "target_language": target_lang,
-        },
-        "params": {"language": target_lang},
-    }
+    # Translate via DeepL
     try:
-        response = translator.send(payload)
-        if isinstance(response, dict):
-            if response.get("error"):
-                logger.warning(f"[KYRA AI] Translation gateway error: {response.get('error')}")
-                return text
-            msg = response.get("message")
-            if isinstance(msg, dict):
-                content = msg.get("content")
-                if isinstance(content, str) and content.strip():
-                    logger.info("[KYRA AI] Translation message.content len=%s", len(content.strip()))
-                    cleaned = _strip_basic_html(content.strip()) if strip_html else content.strip()
-                    if _is_boilerplate_translation(cleaned, text_for_translation):
-                        logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
-                        return text_for_translation
-                    return cleaned
-            for key in ("result", "response", "content", "text", "output"):
-                value = response.get(key)
-                if isinstance(value, str) and value.strip():
-                    logger.info("[KYRA AI] Translation %s len=%s", key, len(value.strip()))
-                    cleaned = _strip_basic_html(value.strip()) if strip_html else value.strip()
-                    if _is_boilerplate_translation(cleaned, text_for_translation):
-                        logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
-                        return text_for_translation
-                    return cleaned
-            data = response.get("data")
-            if isinstance(data, dict):
-                for key in ("content", "text", "output"):
-                    val = data.get(key)
-                    if isinstance(val, str) and val.strip():
-                        logger.info("[KYRA AI] Translation data.%s len=%s", key, len(val.strip()))
-                        cleaned = _strip_basic_html(val.strip()) if strip_html else val.strip()
-                        if _is_boilerplate_translation(cleaned, text_for_translation):
-                            logger.warning("[KYRA AI] Translation looks like boilerplate, using original text")
-                            return text_for_translation
-                        return cleaned
-            logger.warning("[KYRA AI] Translation gateway empty response: %s", response)
+        deepl_result = deepl_translate_text(text, source_lang, target_lang)
+        if deepl_result is not None:
+            logger.info("[KYRA AI] DeepL translated %d chars (%s->%s)", len(deepl_result), source_lang, target_lang)
+            return deepl_result
     except Exception as exc:
-        logger.warning("[KYRA AI] Translation failed, returning original text: %s", exc)
-        return text
+        logger.warning("[KYRA AI] DeepL translation failed: %s", exc)
+
+    logger.warning("[KYRA AI] DeepL unavailable, returning original text (%s->%s)", source_lang, target_lang)
     return text
-
-
-def _strip_basic_html(value: str) -> str:
-    if not isinstance(value, str):
-        return ""
-    cleaned = re.sub(r"<br\\s*/?>", "\\n", value, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<[^>]+>", "", cleaned)
-    return cleaned.strip()
-
-
-def _html_to_text(value: str) -> str:
-    if not isinstance(value, str):
-        return ""
-    cleaned = re.sub(r"<br\\s*/?>", "\\n", value, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
-    cleaned = re.sub(r"\\s+", " ", cleaned)
-    return cleaned.strip()
-
-
-def _is_boilerplate_translation(text: str, original: str = "") -> bool:
-    if not isinstance(text, str):
-        return False
-    lowered = text.lower()
-    if (
-        "tinymce" in lowered
-        or "modify the text according to the instruction" in lowered
-        or "bitte ändern sie den text gemäß der anweisung" in lowered
-        or "please provide the text" in lowered
-        or "i will assist you" in lowered
-        or "i'd be happy to help" in lowered
-        or "here is the translat" in lowered
-        or "i can help you" in lowered
-        or "what would you like" in lowered
-        or "sure, here" in lowered
-    ):
-        return True
-    if original and len(text) > len(original) * 3:
-        return True
-    return False
 
 
 SKIP_TRANSLATION_FIELDS = {

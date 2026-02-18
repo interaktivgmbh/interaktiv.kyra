@@ -19,4 +19,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1010_to_v1020.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1020"
+            destination="1030"
+            title="Add DeepL registry fields"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1020_to_v1030.upgrade"
+    />
 </configure>
