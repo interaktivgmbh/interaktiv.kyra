@@ -45,4 +45,28 @@
         permission="zope2.View"
     />
 
+    <plone:service
+        method="GET"
+        name="@ai-tag-mappings"
+        factory=".ai_tag_mappings.AITagMappingsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-tag-mappings"
+        factory=".ai_tag_mappings.AITagMappingsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="DELETE"
+        name="@ai-tag-mappings"
+        factory=".ai_tag_mappings.AITagMappingsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
 </configure>
