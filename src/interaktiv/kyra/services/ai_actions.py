@@ -1153,10 +1153,81 @@ def _translate_slate_link(node: Dict[str, Any], target_lang: str):
                 node["url"] = translated_path
 
 
+def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
+    """Rewrite image/URL references in blocks to point to translated content."""
+    url = block.get("url")
+    if not isinstance(url, str) or not url.strip():
+        return
+    # Strip @@images/... suffix to get the content path
+    content_path = url
+    images_suffix = ""
+    if "/@@images/" in content_path:
+        parts = content_path.split("/@@images/", 1)
+        content_path = parts[0]
+        images_suffix = "/@@images/" + parts[1]
+    elif content_path.endswith("/@@images"):
+        content_path = content_path[: -len("/@@images")]
+        images_suffix = "/@@images"
+    translated_path = _resolve_internal_link_translation(content_path, target_lang)
+    if translated_path:
+        new_url = translated_path + images_suffix
+        block["url"] = new_url
+        logger.info("[KYRA AI IMAGE] rewrote block url: %s -> %s", url, new_url)
+    # Also rewrite @id if present (some blocks store it)
+    at_id = block.get("@id")
+    if isinstance(at_id, str) and at_id.strip():
+        id_path = at_id
+        id_suffix = ""
+        if "/@@images/" in id_path:
+            parts = id_path.split("/@@images/", 1)
+            id_path = parts[0]
+            id_suffix = "/@@images/" + parts[1]
+        translated_id = _resolve_internal_link_translation(id_path, target_lang)
+        if translated_id:
+            block["@id"] = translated_id + id_suffix
+    # Rewrite href if present
+    href = block.get("href")
+    if isinstance(href, str) and href.strip():
+        href_path = href
+        href_suffix = ""
+        if "/@@images/" in href_path:
+            parts = href_path.split("/@@images/", 1)
+            href_path = parts[0]
+            href_suffix = "/@@images/" + parts[1]
+        translated_href = _resolve_internal_link_translation(href_path, target_lang)
+        if translated_href:
+            block["href"] = translated_href + href_suffix
+
+
+def _rewrite_urls_recursive(obj: Any, target_lang: str):
+    """Recursively walk blocks/dicts/lists and rewrite image URLs."""
+    if isinstance(obj, dict):
+        # If it looks like a block, rewrite its image URLs
+        if obj.get("url") or obj.get("@id") or obj.get("href"):
+            _rewrite_block_image_urls(obj, target_lang)
+        # Recurse into nested blocks (e.g. grid columns have a "blocks" dict)
+        nested_blocks = obj.get("blocks")
+        if isinstance(nested_blocks, dict):
+            for sub_block in nested_blocks.values():
+                _rewrite_urls_recursive(sub_block, target_lang)
+        # Recurse into other dict values
+        for key, value in obj.items():
+            if key in ("blocks",):
+                continue  # already handled
+            if isinstance(value, (dict, list)):
+                _rewrite_urls_recursive(value, target_lang)
+    elif isinstance(obj, list):
+        for item in obj:
+            _rewrite_urls_recursive(item, target_lang)
+
+
 def _translate_links_in_blocks(blocks: Dict[str, Any], target_lang: str):
     for block in blocks.values():
         if not isinstance(block, dict):
             continue
+        # Rewrite image/content URLs in all blocks recursively
+        _rewrite_urls_recursive(block, target_lang)
+        # Rewrite slate links
         _translate_links_in_value(block.get("value"), target_lang)
         for field in BLOCK_SLATE_SUBOBJECTS.get(block.get("@type", ""), []):
             sub = block.get(field)
