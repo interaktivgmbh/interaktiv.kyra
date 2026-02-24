@@ -93,4 +93,68 @@
         permission="interaktiv.kyra.actions.apply"
     />
 
+    <plone:service
+        method="GET"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="PATCH"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="DELETE"
+        name="@ai-prompts"
+        factory=".ai_prompts.AIPromptsService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-assistant-run"
+        factory=".ai_assistant_run.AIAssistantRunService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-prompt-files"
+        factory=".prompt_files.PromptFilesService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-prompt-files"
+        factory=".prompt_files.PromptFilesService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="DELETE"
+        name="@ai-prompt-files"
+        factory=".prompt_files.PromptFilesService"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
 </configure>

@@ -13,3 +13,8 @@ class Prompts(APIBase):
         url = f'{self.gateway_url}/{prompt_id}/apply'
         response = self.request('POST', url, json=payload)
         return response
+
+    def delete(self, prompt_id: str) -> Dict[str, Any]:
+        url = f'{self.gateway_url}/{prompt_id}'
+        response = self.request('DELETE', url)
+        return response
