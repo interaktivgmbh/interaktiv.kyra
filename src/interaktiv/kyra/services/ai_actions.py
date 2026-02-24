@@ -16,6 +16,7 @@ from interaktiv.kyra.services.deepl_translation import deepl_translate_text, get
 from interaktiv.kyra.api import Chat
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
+from passlib.exc import ExpectedTypeError
 from plone.i18n.normalizer import idnormalizer
 from persistent.list import PersistentList
 from persistent.mapping import PersistentMapping
