@@ -1391,7 +1391,6 @@ class AIActionsService(ServiceBase):
 
 _SYNC_TOLERANCE_SECONDS = 5
 
-
 class AITranslationStatusService(Service):
 
     def reply(self):
