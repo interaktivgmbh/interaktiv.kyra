@@ -195,8 +195,21 @@ def _apply_prompt_fallback(
             last_user = message.get("content") or ""
             break
 
-    apply_payload: Dict[str, Any] = {"query": last_user, "input": last_user}
     params = data.get("params") or {}
+    context = data.get("context") or {}
+    selection_text = context.get("selection_text") or ""
+    page_content = context.get("page_content") or ""
+
+    # When selection text is present, create a dedicated temp prompt so the
+    # gateway processes the actual text (not the generic chat prompt which
+    # uses actionType=replace and adds HTML boilerplate).
+    source_text = selection_text or page_content
+    if source_text:
+        return _apply_selection_prompt_fallback(
+            kyra, last_user, source_text, params
+        )
+
+    apply_payload: Dict[str, Any] = {"query": last_user, "input": last_user}
     if isinstance(params, dict) and params.get("language"):
         apply_payload["language"] = params.get("language")
 
@@ -215,6 +228,58 @@ def _apply_prompt_fallback(
             if prompt_id:
                 response = kyra.prompts.apply(prompt_id, apply_payload)
     return response
+
+
+def _apply_selection_prompt_fallback(
+    kyra,
+    user_query: str,
+    source_text: str,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Create a temp prompt for selection-based requests (translate, rewrite, etc.)."""
+    # The gateway replaces {{input}} with the apply_payload "input" value.
+    # Embed the user instruction in the prompt template, pass the text as input.
+    prompt_payload = {
+        "name": "Kyra Chat Selection",
+        "prompt": (
+            f"{user_query}\n\n"
+            "Apply the above instruction to the following text. "
+            "Return ONLY the resulting text, no explanations or metadata.\n\n"
+            "{{input}}"
+        ),
+        "categories": ["Chat"],
+        "actionType": "append",
+    }
+    temp_id = None
+    try:
+        created = kyra.prompts.create(prompt_payload)
+        if isinstance(created, dict) and created.get("error"):
+            logger.warning("[KYRA SELECTION PROMPT] create failed: %s", created.get("error"))
+            return created
+        temp_id = created.get("id") or created.get("_id")
+        if not temp_id:
+            return {"error": "Unable to create selection prompt"}
+
+        apply_payload: Dict[str, Any] = {
+            "query": source_text[:5000],
+            "input": source_text[:5000],
+        }
+        if isinstance(params, dict) and params.get("language"):
+            apply_payload["language"] = params.get("language")
+
+        response = kyra.prompts.apply(temp_id, apply_payload)
+        logger.info(
+            "[KYRA SELECTION PROMPT] applied temp=%s result_keys=%s",
+            temp_id,
+            list(response.keys()) if isinstance(response, dict) else "N/A",
+        )
+        return response
+    finally:
+        if temp_id:
+            try:
+                kyra.prompts.delete(temp_id)
+            except Exception:
+                pass
 
 
 MAX_DOC_MESSAGE_TEXT = 3000
@@ -255,6 +320,18 @@ def _build_system_message(context_docs: Dict[str, Any]) -> str:
         doc_type = doc.get("type", "")
         snippet = (doc.get("text") or "")[:300].replace("\n", " ")
         lines.append(f"- [{doc_type}] {title} ({url}): {snippet}")
+
+    selection_text = context_docs.get("selection_text") or ""
+    if selection_text:
+        lines.append("")
+        lines.append("## User's Selected Text")
+        lines.append(
+            "The user has selected the following text on the page. "
+            "Focus your response specifically on this text. "
+            "When asked to translate, rewrite, or transform, apply it to this text only:"
+        )
+        lines.append(selection_text[:3000])
+
     return "\n".join(lines)
 
 
@@ -549,6 +626,10 @@ def _is_unusable_gateway_answer(text: str) -> bool:
         return True
     lowered = text.lower()
     if "please modify the text according to the instruction" in lowered:
+        return True
+    if "modifique el texto de acuerdo con las instrucciones" in lowered:
+        return True
+    if "modifiez le texte selon les instructions" in lowered:
         return True
     if "tinymce" in lowered:
         return True
@@ -1103,9 +1184,10 @@ class AIChatService(ServiceBase):
 
         messages_with_context = payload.get("messages", [])
         gateway_data = self.kyra.chat.send(payload)
-        logger.debug("[KYRA AI GATEWAY RESPONSE] %s", gateway_data)
+        logger.info("[KYRA AI GATEWAY RESPONSE] type=%s keys=%s", type(gateway_data).__name__, list(gateway_data.keys()) if isinstance(gateway_data, dict) else "N/A")
 
         if isinstance(gateway_data, dict) and gateway_data.get("error"):
+            logger.info("[KYRA AI GATEWAY ERROR BRANCH] error=%s", gateway_data.get("error"))
             prompt_response = _apply_prompt_fallback(self.kyra, messages_with_context, data)
             if isinstance(prompt_response, dict) and not prompt_response.get("error"):
                 gateway_data = prompt_response
@@ -1117,6 +1199,7 @@ class AIChatService(ServiceBase):
                 raise BadRequest(error_message)
 
         assistant_text = _extract_assistant_text(gateway_data)
+        logger.info("[KYRA AI EXTRACTED TEXT] len=%s preview=%s", len(assistant_text), assistant_text[:120] if assistant_text else "EMPTY")
         if not assistant_text:
             prompt_response = _apply_prompt_fallback(self.kyra, messages_with_context, data)
             if isinstance(prompt_response, dict) and not prompt_response.get("error"):
@@ -1124,8 +1207,16 @@ class AIChatService(ServiceBase):
                 assistant_text = _extract_assistant_text(gateway_data)
 
         mode = context_docs.get("mode") or "page"
+        selection_text = context_docs.get("selection_text") or ""
         needs_grounding = _needs_grounded_response(last_query, mode, context_docs)
         smalltalk = _detect_smalltalk_intent(last_query)
+
+        # Skip grounding check when user has selected text — the AI response
+        # (e.g. a translation) may not contain the original page tokens
+        if selection_text:
+            needs_grounding = False
+
+        logger.info("[KYRA AI GROUNDING] needs=%s unusable=%s has_selection=%s", needs_grounding, _is_unusable_gateway_answer(assistant_text) if assistant_text else "N/A", bool(selection_text))
 
         if (
             not assistant_text
@@ -1388,7 +1479,10 @@ class AIChatService(ServiceBase):
 
                 assembled = "".join(content_parts)
                 mode = context_docs.get("mode") or "page"
+                selection_text = context_docs.get("selection_text") or ""
                 needs_grounding = _needs_grounded_response(last_query, mode, context_docs)
+                if selection_text:
+                    needs_grounding = False
                 if _is_unusable_gateway_answer(assembled) or (
                     needs_grounding and not _is_grounded_answer(assembled, context_docs)
                 ):
