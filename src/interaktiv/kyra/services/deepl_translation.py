@@ -1,4 +1,6 @@
+import random
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from interaktiv.kyra import logger
@@ -152,30 +154,42 @@ def deepl_translate_text(
     if client is None:
         logger.info("[KYRA DEEPL] skipping translation, no client available")
         return None
-    try:
-        kwargs: Dict[str, Any] = {
-            "text": text,
-            "target_lang": _deepl_target_lang(target_lang),
-        }
-        if source_lang:
-            kwargs["source_lang"] = _deepl_source_lang(source_lang)
-        gid = glossary_id or (
-            _get_glossary_id_for_pair(source_lang, target_lang) if source_lang else ""
-        )
-        if gid and source_lang:
-            kwargs["glossary"] = gid
-        result = client.translate_text(**kwargs)
-        translated = str(result)
-        if translated.strip():
-            logger.info(
-                "[KYRA DEEPL] translated %d chars -> %d chars (%s->%s)",
-                len(text), len(translated), source_lang, target_lang,
-            )
-            return translated.strip()
-        return None
-    except Exception as exc:
-        logger.warning("[KYRA DEEPL] translation failed, falling back: %s", exc)
-        return None
+    kwargs: Dict[str, Any] = {
+        "text": text,
+        "target_lang": _deepl_target_lang(target_lang),
+    }
+    if source_lang:
+        kwargs["source_lang"] = _deepl_source_lang(source_lang)
+    gid = glossary_id or (
+        _get_glossary_id_for_pair(source_lang, target_lang) if source_lang else ""
+    )
+    if gid and source_lang:
+        kwargs["glossary"] = gid
+
+    for attempt in range(4):
+        try:
+            result = client.translate_text(**kwargs)
+            translated = str(result)
+            if translated.strip():
+                logger.info(
+                    "[KYRA DEEPL] translated %d chars -> %d chars (%s->%s)",
+                    len(text), len(translated), source_lang, target_lang,
+                )
+                return translated.strip()
+            return None
+        except Exception as exc:
+            exc_str = str(exc)
+            if ("Too many requests" in exc_str or "429" in exc_str) and attempt < 3:
+                delay = 1.5 * (attempt + 1) + random.uniform(0, 0.5)
+                logger.info(
+                    "[KYRA DEEPL] rate limited, retrying in %.1fs (attempt %d/3)",
+                    delay, attempt + 1,
+                )
+                time.sleep(delay)
+                continue
+            logger.warning("[KYRA DEEPL] translation failed, falling back: %s", exc)
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
