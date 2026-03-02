@@ -53,3 +53,10 @@ class IAIAssistantSchema(Interface):
         required=False,
     )
 
+    edit_backend_url = schema.TextLine(
+        title=_('Edit Backend URL'),
+        description=_('External backend URL for block-editing mode. Leave empty to disable.'),
+        default='',
+        required=False,
+    )
+

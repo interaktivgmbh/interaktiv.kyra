@@ -38,11 +38,24 @@ def _capabilities_for(context) -> dict:
     if can_edit:
         features.extend(["actions_plan", "actions_apply"])
 
-    return {
+    result = {
         "is_anonymous": is_anonymous,
         "can_edit": can_edit,
         "features": features,
     }
+
+    if can_edit:
+        try:
+            edit_url = api.portal.get_registry_record(
+                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.edit_backend_url",
+                default="",
+            )
+            if edit_url:
+                result["edit_backend_url"] = edit_url
+        except Exception:
+            pass
+
+    return result
 
 
 class AICapabilities(Service):
