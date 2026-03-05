@@ -55,6 +55,16 @@ def _capabilities_for(context) -> dict:
         except Exception:
             pass
 
+        try:
+            api_key = api.portal.get_registry_record(
+                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.edit_backend_api_key",
+                default="",
+            )
+            if api_key:
+                result["edit_backend_api_key"] = api_key
+        except Exception:
+            pass
+
     return result
 
 
