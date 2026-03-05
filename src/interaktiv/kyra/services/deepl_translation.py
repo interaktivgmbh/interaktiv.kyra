@@ -20,7 +20,11 @@ except ImportError:
 
 GLOSSARY_ENTRIES_KEY = "interaktiv.kyra.glossary_entries"
 GLOSSARY_IDS_KEY = "interaktiv.kyra.glossary_ids"
-GLOSSARY_NAME = "FZJ Kyra Translation Glossary"
+GLOSSARY_NAME = "Volto AI Assistant Translation Glossary"
+
+# Pro plan: higher concurrency, no aggressive glossary cleanup
+DEEPL_PRO_MAX_CONCURRENCY = 10
+DEEPL_FREE_MAX_CONCURRENCY = 3
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +69,18 @@ def _set_glossary_ids(ids: Dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 # DeepL client
 # ---------------------------------------------------------------------------
+
+def is_deepl_pro() -> bool:
+    """Check if the configured DeepL API key is a Pro plan key.
+    Free keys end with ':fx', Pro keys do not."""
+    key = _get_deepl_api_key()
+    return bool(key.strip()) and not key.strip().endswith(":fx")
+
+
+def get_deepl_max_concurrency() -> int:
+    """Return recommended max concurrency based on DeepL plan."""
+    return DEEPL_PRO_MAX_CONCURRENCY if is_deepl_pro() else DEEPL_FREE_MAX_CONCURRENCY
+
 
 def _get_deepl_client():
     """Return a DeepL client or None if not available."""
@@ -300,13 +316,25 @@ def _pull_entries_from_deepl(client) -> int:
     return imported
 
 
-def _cleanup_old_glossaries(client) -> None:
-    """Delete ALL glossaries on the account to free quota for new ones."""
-    # Clean up ALL bilingual glossaries (not just ours — free tier has strict limits)
+def _cleanup_old_glossaries(client, only_ours: bool = False) -> None:
+    """Delete glossaries on the account to free quota for new ones.
+
+    Args:
+        only_ours: If True (Pro plan), only delete glossaries named GLOSSARY_NAME.
+                   If False (Free plan), delete ALL glossaries to stay within quota.
+    """
     try:
         glossaries = client.list_glossaries()
-        logger.info("[KYRA DEEPL] found %d bilingual glossaries to clean up", len(glossaries))
-        for g in glossaries:
+        to_delete = [
+            g for g in glossaries
+            if not only_ours or g.name == GLOSSARY_NAME
+        ]
+        logger.info(
+            "[KYRA DEEPL] found %d glossaries, deleting %d (%s mode)",
+            len(glossaries), len(to_delete),
+            "pro" if only_ours else "free",
+        )
+        for g in to_delete:
             try:
                 client.delete_glossary(g.glossary_id)
                 logger.info("[KYRA DEEPL] deleted glossary %s (%s)", g.glossary_id, g.name)
@@ -318,7 +346,11 @@ def _cleanup_old_glossaries(client) -> None:
     # Also clean up any multilingual glossaries (from previous attempts)
     try:
         glossaries = client.list_multilingual_glossaries()
-        for g in glossaries:
+        to_delete = [
+            g for g in glossaries
+            if not only_ours or g.name == GLOSSARY_NAME
+        ]
+        for g in to_delete:
             try:
                 client.delete_multilingual_glossary(g.glossary_id)
                 logger.info("[KYRA DEEPL] deleted multilingual glossary %s (%s)", g.glossary_id, g.name)
@@ -358,8 +390,8 @@ def sync_glossary_to_deepl() -> Optional[str]:
         logger.info("[KYRA DEEPL] no glossary entries to sync")
         return None
 
-    # Delete ALL old glossaries first
-    _cleanup_old_glossaries(client)
+    # Pro: only delete our own glossaries; Free: delete all to stay within quota
+    _cleanup_old_glossaries(client, only_ours=is_deepl_pro())
     _set_glossary_ids({})
 
     # Create one bilingual glossary per language pair (v2 API)
@@ -456,10 +488,11 @@ class AIGlossaryService(Service):
         target_lang = self.request.get("target", "en")
 
         # Include DeepL diagnostics + pull entries from DeepL
-        deepl_status = {"available": False}
+        deepl_status = {"available": False, "plan": "none"}
         client = _get_deepl_client()
         if client:
             deepl_status["available"] = True
+            deepl_status["plan"] = "pro" if is_deepl_pro() else "free"
             # Pull entries from DeepL into local store
             try:
                 pulled = _pull_entries_from_deepl(client)

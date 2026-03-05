@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from AccessControl import Unauthorized
 from interaktiv.kyra import logger
 from interaktiv.kyra.services.ai_tag_mappings import _get_tag_mappings
-from interaktiv.kyra.services.deepl_translation import deepl_translate_text, get_glossary_entries
+from interaktiv.kyra.services.deepl_translation import deepl_translate_text, get_deepl_max_concurrency, get_glossary_entries
 from interaktiv.kyra.api import Chat
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
@@ -49,7 +49,11 @@ def _get_int_env(name: str, default: int) -> int:
 
 
 def _max_translation_concurrency() -> int:
-    return _get_int_env("KYRA_TRANSLATE_MAX_CONCURRENCY", TRANSLATION_MAX_CONCURRENCY_DEFAULT)
+    env_val = os.getenv("KYRA_TRANSLATE_MAX_CONCURRENCY", "").strip()
+    if env_val:
+        return _get_int_env("KYRA_TRANSLATE_MAX_CONCURRENCY", TRANSLATION_MAX_CONCURRENCY_DEFAULT)
+    # No env override → use DeepL plan-based default
+    return get_deepl_max_concurrency()
 
 
 def _translation_timeout_seconds() -> int:
