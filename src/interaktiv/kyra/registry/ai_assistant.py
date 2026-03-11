@@ -53,17 +53,4 @@ class IAIAssistantSchema(Interface):
         required=False,
     )
 
-    edit_backend_url = schema.TextLine(
-        title=_('Edit Backend URL'),
-        description=_('External backend URL for block-editing mode. Leave empty to disable.'),
-        default='',
-        required=False,
-    )
-
-    edit_backend_api_key = schema.Password(
-        title=_('Edit Backend API Key'),
-        description=_('API key sent as "Authorization: Bearer <key>" to the edit backend. Leave empty to disable authentication.'),
-        default='',
-        required=False,
-    )
 
