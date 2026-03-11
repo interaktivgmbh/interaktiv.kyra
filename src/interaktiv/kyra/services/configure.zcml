@@ -157,4 +157,37 @@
         permission="interaktiv.kyra.actions.apply"
     />
 
+    <!-- Layout Agent edit proxy -->
+    <plone:service
+        method="POST"
+        name="@ai-edit-conversations"
+        factory=".ai_edit_proxy.AIEditCreateConversation"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-edit-messages"
+        factory=".ai_edit_proxy.AIEditSendMessage"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-edit-jobs"
+        factory=".ai_edit_proxy.AIEditPollJob"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-edit-job-cancel"
+        factory=".ai_edit_proxy.AIEditCancelJob"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
 </configure>

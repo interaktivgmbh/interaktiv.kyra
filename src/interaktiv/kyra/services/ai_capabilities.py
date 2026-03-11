@@ -51,17 +51,10 @@ def _capabilities_for(context) -> dict:
                 default="",
             )
             if edit_url:
-                result["edit_backend_url"] = edit_url
-        except Exception:
-            pass
-
-        try:
-            api_key = api.portal.get_registry_record(
-                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.edit_backend_api_key",
-                default="",
-            )
-            if api_key:
-                result["edit_backend_api_key"] = api_key
+                # The frontend only needs to know that edit mode is available.
+                # Actual requests are proxied through /@ai-edit-* endpoints,
+                # so we expose a sentinel value instead of the real URL.
+                result["edit_backend_url"] = "proxy"
         except Exception:
             pass
 
