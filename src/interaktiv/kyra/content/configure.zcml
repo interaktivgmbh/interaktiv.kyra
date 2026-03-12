@@ -1,0 +1,16 @@
+<configure
+    xmlns="http://namespaces.zope.org/zope"
+    xmlns:plone="http://namespaces.plone.org/plone"
+    i18n_domain="interaktiv.kyra">
+
+    <adapter
+        name="status"
+        factory=".indexers.status_indexer"
+    />
+
+    <adapter
+        name="task_date"
+        factory=".indexers.task_date_indexer"
+    />
+
+</configure>

@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<object name="JuniorTask"
+    meta_type="Dexterity FTI"
+    i18n:domain="interaktiv.kyra"
+    xmlns:i18n="http://xml.zope.org/namespaces/i18n">
+
+  <property name="title" i18n:translate="">Junior Task</property>
+  <property name="description" i18n:translate="">A simple task for the junior meeting exercise</property>
+  <property name="icon_expr"></property>
+  <property name="factory">JuniorTask</property>
+  <property name="add_view_expr">string:${folder_url}/++add++JuniorTask</property>
+  <property name="link_target"></property>
+  <property name="immediate_view">view</property>
+  <property name="global_allow">True</property>
+  <property name="filter_content_types">True</property>
+  <property name="allowed_content_types"/>
+  <property name="allow_discussion">False</property>
+  <property name="default_view">view</property>
+  <property name="view_methods">
+    <element value="view"/>
+  </property>
+  <property name="default_view_fallback">False</property>
+  <property name="add_permission">cmf.AddPortalContent</property>
+
+  <property name="klass">plone.dexterity.content.Container</property>
+  <property name="behaviors">
+    <element value="plone.dublincore"/>
+    <element value="plone.namefromtitle"/>
+    <element value="plone.versioning"/>
+  </property>
+
+  <property name="schema">interaktiv.kyra.content.junior_task.IJuniorTask</property>
+  <property name="model_source"></property>
+  <property name="model_file"></property>
+
+</object>

@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<object name="portal_catalog" meta_type="Plone Catalog Tool">
+  <index name="status" meta_type="FieldIndex">
+    <indexed_attr value="status"/>
+  </index>
+  <index name="task_date" meta_type="DateIndex">
+    <indexed_attr value="task_date"/>
+  </index>
+
+  <column value="status"/>
+  <column value="task_date"/>
+</object>
