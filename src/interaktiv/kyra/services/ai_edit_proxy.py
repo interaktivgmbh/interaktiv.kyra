@@ -86,6 +86,18 @@ class _EditProxyBase(Service):
         token = _get_auth_token()
         headers = _proxy_headers(token)
 
+        # Debug: log outgoing request details
+        logger.info(
+            "[ai-edit-proxy] >>> %s %s | auth=%s | body keys=%s",
+            method, full_url,
+            "Bearer <key>" if token else "NONE",
+            list(body.keys()) if body else "no body",
+        )
+        if body:
+            # Log full body for debugging (truncate state to avoid huge logs)
+            debug_body = {k: (f"<{len(json.dumps(v))} chars>" if k == "state" else v) for k, v in body.items()}
+            logger.info("[ai-edit-proxy] >>> body: %s", json.dumps(debug_body, ensure_ascii=False))
+
         try:
             resp = requests.request(
                 method,
@@ -115,6 +127,8 @@ class _EditProxyBase(Service):
                 if isinstance(data, dict) and data.get("status") == "completed":
                     state_keys = list(data.get("state", {}).keys()) if isinstance(data.get("state"), dict) else "no state"
                     logger.info("[ai-edit-proxy] Completed job state keys: %s", state_keys)
+                    if isinstance(data.get("state"), dict):
+                        logger.info("[ai-edit-proxy] FULL STATE: %s", json.dumps(data["state"], ensure_ascii=False))
                 return data
             except ValueError:
                 pass
