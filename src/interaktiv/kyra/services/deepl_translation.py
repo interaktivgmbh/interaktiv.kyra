@@ -257,13 +257,18 @@ def remove_glossary_entry(
 
 def _pull_entries_from_deepl(client) -> int:
     """
-    Read all glossaries from DeepL and merge their entries into our local store.
-    Returns the number of new entries imported.
+    Read all glossaries from DeepL and synchronize them into our local store.
+    Remote entries are treated as the source of truth: new remote entries are
+    added locally, and local entries that no longer exist in DeepL are removed.
+    Returns the number of entries changed (added + removed).
     """
-    imported = 0
+    changed = 0
     try:
         glossaries = client.list_glossaries()
         logger.info("[KYRA DEEPL] pulling entries from %d DeepL glossaries", len(glossaries))
+
+        # Collect all remote entries per language pair
+        remote_by_pair: Dict[str, Dict[str, str]] = {}
         for g in glossaries:
             try:
                 src = _internal_lang(g.source_lang)
@@ -271,20 +276,12 @@ def _pull_entries_from_deepl(client) -> int:
                 remote_entries = client.get_glossary_entries(g.glossary_id)
                 if not remote_entries:
                     continue
-                # Merge into local store
-                store = _get_glossary_store()
                 key = _pair_key(src, tgt)
-                if key not in store:
-                    store[key] = {}
+                if key not in remote_by_pair:
+                    remote_by_pair[key] = {}
                 for term, translation in remote_entries.items():
                     if term.strip() and translation.strip():
-                        if term.strip() not in store[key]:
-                            store[key][term.strip()] = translation.strip()
-                            imported += 1
-                # Persist
-                portal = api.portal.get()
-                annotations = IAnnotations(portal)
-                annotations[GLOSSARY_ENTRIES_KEY] = store
+                        remote_by_pair[key][term.strip()] = translation.strip()
                 logger.info(
                     "[KYRA DEEPL] pulled %d entries from glossary %s (%s->%s, name=%s)",
                     len(remote_entries), g.glossary_id, src, tgt, g.name,
@@ -293,11 +290,40 @@ def _pull_entries_from_deepl(client) -> int:
                 logger.warning(
                     "[KYRA DEEPL] could not read glossary %s: %s", g.glossary_id, exc
                 )
+
+        # Sync local store with remote: add missing, remove stale
+        store = _get_glossary_store()
+        for key, remote_entries in remote_by_pair.items():
+            if key not in store:
+                store[key] = {}
+            # Add new remote entries
+            for term, translation in remote_entries.items():
+                if term not in store[key]:
+                    store[key][term] = translation
+                    changed += 1
+            # Remove local entries that no longer exist in DeepL
+            stale = [t for t in store[key] if t not in remote_entries]
+            for term in stale:
+                del store[key][term]
+                changed += 1
+
+        # Also clean up local pairs that have no remote glossary at all
+        for key in list(store.keys()):
+            if key not in remote_by_pair:
+                if store[key]:
+                    changed += len(store[key])
+                    store[key] = {}
+
+        # Persist
+        portal = api.portal.get()
+        annotations = IAnnotations(portal)
+        annotations[GLOSSARY_ENTRIES_KEY] = store
+
     except Exception as exc:
         logger.warning("[KYRA DEEPL] could not list glossaries for pull: %s", exc)
-    if imported:
-        logger.info("[KYRA DEEPL] imported %d new entries from DeepL", imported)
-    return imported
+    if changed:
+        logger.info("[KYRA DEEPL] synced %d entry changes from DeepL", changed)
+    return changed
 
 
 def _cleanup_old_glossaries(client) -> None:
@@ -349,9 +375,6 @@ def sync_glossary_to_deepl() -> Optional[str]:
         )
     except Exception as exc:
         logger.warning("[KYRA DEEPL] could not check usage: %s", exc)
-
-    # Pull entries from DeepL BEFORE deleting old glossaries
-    _pull_entries_from_deepl(client)
 
     store = _get_glossary_store()
     if not store:
