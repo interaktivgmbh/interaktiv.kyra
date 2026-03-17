@@ -200,9 +200,6 @@ def _apply_prompt_fallback(
     selection_text = context.get("selection_text") or ""
     page_content = context.get("page_content") or ""
 
-    # When selection text is present, create a dedicated temp prompt so the
-    # gateway processes the actual text (not the generic chat prompt which
-    # uses actionType=replace and adds HTML boilerplate).
     source_text = selection_text or page_content
     if source_text:
         return _apply_selection_prompt_fallback(
@@ -236,9 +233,6 @@ def _apply_selection_prompt_fallback(
     source_text: str,
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Create a temp prompt for selection-based requests (translate, rewrite, etc.)."""
-    # The gateway replaces {{input}} with the apply_payload "input" value.
-    # Embed the user instruction in the prompt template, pass the text as input.
     prompt_payload = {
         "name": "Kyra Chat Selection",
         "prompt": (
@@ -384,7 +378,6 @@ def _filter_citations_by_response(
     response_text: str,
     context_docs: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
-    """Keep only citations for sources actually referenced in the response."""
     if not citations or not response_text:
         return citations
 
@@ -405,27 +398,22 @@ def _filter_citations_by_response(
         label = (citation.get("label") or "").strip()
         url = citation.get("url") or ""
 
-        # Always keep the current page in page/summarize modes
         if source_id == page_id and mode in ("page", "summarize"):
             filtered.append(citation)
             continue
 
-        # Always keep uploads (user explicitly provided these)
         if source_id in upload_ids:
             filtered.append(citation)
             continue
 
-        # Keep if title is mentioned in response (min 3 chars to avoid false positives)
         if label and len(label) >= 3 and label.lower() in response_lower:
             filtered.append(citation)
             continue
 
-        # Keep if URL is referenced in response
         if url and url in response_text:
             filtered.append(citation)
             continue
 
-    # If filtering removed everything but we had citations, keep at least the page doc
     if not filtered and citations and page_id:
         for citation in citations:
             if citation.get("source_id") == page_id:
@@ -456,7 +444,6 @@ def _missing_page_content_message() -> str:
 
 
 def _format_page_text(text: str, max_chars: int = 1500) -> str:
-    """Format extracted page text for display as a fallback summary."""
     if not text or not text.strip():
         return ""
 
@@ -464,16 +451,12 @@ def _format_page_text(text: str, max_chars: int = 1500) -> str:
     if len(result) > max_chars:
         result = result[:max_chars].rsplit(" ", 1)[0] + "..."
 
-    # Break numbered headings onto their own line when inline
-    # e.g. "...erhalten. 01. Voraussetzungen In der Regel..." →
-    #      "...erhalten.\n\n**01. Voraussetzungen**\nIn der Regel..."
     result = re.sub(
         r"(?<=\S)\s+(\d{1,2})\.\s+([A-ZÄÖÜ])",
         r"\n\n**\1. \2",
         result,
     )
 
-    # Bold numbered headings already at start of a line
     result = re.sub(
         r"^(\d{1,2})\.\s+([A-ZÄÖÜ])",
         r"**\1. \2",
@@ -481,13 +464,10 @@ def _format_page_text(text: str, max_chars: int = 1500) -> str:
         flags=re.MULTILINE,
     )
 
-    # Close bold markers: find end of heading (next sentence or next paragraph)
     lines = result.split("\n")
     formatted_lines: list = []
     for line in lines:
         if line.startswith("**") and "**" not in line[2:]:
-            # Line has unclosed bold — close it at end of the heading phrase
-            # Heading ends before the first sentence-continuation pattern
             m = re.match(
                 r"(\*\*\d{1,2}\.\s+\S+(?:\s+\S+){0,5}?)\s+((?:In|Im|Der|Die|Das|Es|Ein|Eine|Neben|Sofern|Sie|Wenn|Wir|Für|Bei|Auf|Unter|Über|Nach|Vor|Durch|Zum|Zur|Mit|Hier|The|A|An|If|For|When|This|It|You|We|To)\s)",
                 line,
@@ -495,7 +475,6 @@ def _format_page_text(text: str, max_chars: int = 1500) -> str:
             if m:
                 formatted_lines.append(f"{m.group(1)}**\n{m.group(2)}{line[m.end():]}")
             else:
-                # Close at end of line
                 formatted_lines.append(f"{line}**")
         else:
             formatted_lines.append(line)
@@ -549,13 +528,11 @@ def _format_citation_snippet(doc: Dict[str, Any]) -> str:
 
 
 def _format_upload_snippet(doc: Dict[str, Any]) -> str:
-    """Return upload text without the aggressive ellipsis we use for citations."""
     snippet = clean_text(doc.get("text") or "")
     if not snippet:
         snippet = clean_text(doc.get("title") or doc.get("url") or "")
     snippet = snippet.strip()
     if len(snippet) > UPLOAD_SNIPPET_LIMIT:
-        # Keep it long but avoid the trailing ellipsis that confused users
         snippet = snippet[:UPLOAD_SNIPPET_LIMIT]
     return snippet
 
@@ -656,7 +633,6 @@ def _is_unusable_gateway_answer(text: str) -> bool:
 
 
 def _is_grounded_answer(text: str, context_docs: Dict[str, Any]) -> bool:
-    """Heuristic: answer should reference the current page title/URL or page text."""
     if not text:
         return False
     page_doc = context_docs.get("page_doc") or {}
@@ -977,7 +953,6 @@ def _parse_gateway_stream_payload(
 
 @implementer(IPublishTraverse)
 class AIChatService(ServiceBase):
-    """POST /++api++/@ai-chat and /++api++/@ai-chat/stream"""
 
     def __init__(self, context, request):
         super().__init__(context, request)
@@ -1003,7 +978,6 @@ class AIChatService(ServiceBase):
         self, data: Dict[str, Any]
     ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str, List[Dict[str, Any]]]:
         messages = _validate_messages(data)
-        # detect intent from last user message
         last_user = ""
         for message in reversed(messages):
             if message.get("role") == "user":
@@ -1017,7 +991,6 @@ class AIChatService(ServiceBase):
             context_payload["mode"] = "summarize"
             context_mode = "summarize"
 
-        # resolve uploads with stored extracted text
         uploads_raw = context_payload.get("uploads") or []
         resolved_uploads = []
         if isinstance(uploads_raw, list):
@@ -1079,7 +1052,6 @@ class AIChatService(ServiceBase):
         payload, context_docs, last_query, messages = self._prepare_gateway_payload(data)
         last_query = last_query or ""
 
-        # Quick local answers from quotes for content intent
         if _detect_content_intent(last_query):
             quote_answer = _answer_from_quotes(context_docs, last_query)
             if quote_answer:
@@ -1093,12 +1065,10 @@ class AIChatService(ServiceBase):
                 return text_answer
         if _detect_upload_intent(last_query) and context_docs.get("upload_docs"):
             upload_docs = context_docs.get("upload_docs") or []
-            # Use markdown-style bold so it renders in plain-text UIs too
             lines = ["Uploaded files:", ""]
             for doc in upload_docs[:3]:
                 snippet = _format_upload_snippet(doc)
                 title = doc.get("title") or "Attachment"
-                # Show filename on its own line, then the extracted text on the next line
                 lines.append(f"- {title}:")
                 lines.append(snippet)
                 lines.append("")
@@ -1113,11 +1083,9 @@ class AIChatService(ServiceBase):
                 "used_context": _build_used_context(context_docs),
             }
 
-        # Block obvious off-site queries early
         if _detect_offsite_intent(last_query):
             return _site_only_response(context_docs, capabilities, last_query)
 
-        # Quick intent handlers (no external call)
         if _detect_site_title_intent(last_query):
             portal = api.portal.get()
             site_title = getattr(portal, "Title", lambda: "this site")()
@@ -1211,8 +1179,6 @@ class AIChatService(ServiceBase):
         needs_grounding = _needs_grounded_response(last_query, mode, context_docs)
         smalltalk = _detect_smalltalk_intent(last_query)
 
-        # Skip grounding check when user has selected text — the AI response
-        # (e.g. a translation) may not contain the original page tokens
         if selection_text:
             needs_grounding = False
 

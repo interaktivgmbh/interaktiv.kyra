@@ -51,9 +51,6 @@ def _capabilities_for(context) -> dict:
                 default="",
             )
             if edit_url:
-                # The frontend only needs to know that edit mode is available.
-                # Actual requests are proxied through /@ai-edit-* endpoints,
-                # so we expose a sentinel value instead of the real URL.
                 result["edit_backend_url"] = "proxy"
         except Exception:
             pass
@@ -62,11 +59,6 @@ def _capabilities_for(context) -> dict:
 
 
 class AICapabilities(Service):
-    """GET /++api++/@ai-capabilities
-
-    Does NOT require KyraAPI / gateway credentials — only checks local
-    Plone permissions so it works even before the add-on is fully configured.
-    """
 
     def __init__(self, context, request):
         super().__init__(context, request)

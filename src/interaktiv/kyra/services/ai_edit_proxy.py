@@ -1,16 +1,3 @@
-"""Proxy for the external Layout Agent API.
-
-Forwards layout-agent requests from the frontend through Plone so the
-browser never talks directly to the external service (avoids CORS issues)
-and keeps credentials server-side.
-
-Endpoints:
-  POST /@ai-edit-conversations          → POST {edit_backend_url}/conversations
-  POST /@ai-edit-messages               → POST {edit_backend_url}/conversations/{id}/messages
-  GET  /@ai-edit-jobs                    → GET  {edit_backend_url}/jobs/{id}
-  POST /@ai-edit-job-cancel             → POST {edit_backend_url}/jobs/{id}/cancel
-"""
-
 import json
 import logging
 
@@ -37,11 +24,6 @@ def _get_edit_backend_url() -> str:
 
 
 def _get_auth_token() -> str:
-    """Return a Bearer token for the layout agent.
-
-    Prefers the static ``edit_backend_api_key`` registry value.  When empty,
-    falls back to a Keycloak JWT obtained through the gateway credentials.
-    """
     static_key = api.portal.get_registry_record(
         name="edit_backend_api_key", interface=IAIAssistantSchema
     ) or ""
@@ -70,7 +52,6 @@ def _error_reply(message: str, status: int = 502):
 
 
 class _EditProxyBase(Service):
-    """Shared base for all edit-proxy endpoints."""
 
     def __init__(self, context, request):
         super().__init__(context, request)
@@ -86,7 +67,6 @@ class _EditProxyBase(Service):
         token = _get_auth_token()
         headers = _proxy_headers(token)
 
-        # Debug: log outgoing request details
         logger.info(
             "[ai-edit-proxy] >>> %s %s | auth=%s | body keys=%s",
             method, full_url,
@@ -94,7 +74,6 @@ class _EditProxyBase(Service):
             list(body.keys()) if body else "no body",
         )
         if body:
-            # Log full body for debugging (truncate state to avoid huge logs)
             debug_body = {k: (f"<{len(json.dumps(v))} chars>" if k == "state" else v) for k, v in body.items()}
             logger.info("[ai-edit-proxy] >>> body: %s", json.dumps(debug_body, ensure_ascii=False))
 
@@ -123,7 +102,6 @@ class _EditProxyBase(Service):
         if "application/json" in content_type:
             try:
                 data = resp.json()
-                # Log state keys for completed jobs to aid debugging
                 if isinstance(data, dict) and data.get("status") == "completed":
                     state_keys = list(data.get("state", {}).keys()) if isinstance(data.get("state"), dict) else "no state"
                     logger.info("[ai-edit-proxy] Completed job state keys: %s", state_keys)
@@ -139,30 +117,14 @@ class _EditProxyBase(Service):
         return {"status": "ok"}
 
 
-# ── POST /@ai-edit-conversations ──────────────────────────────────────────
-
-
 class AIEditCreateConversation(_EditProxyBase):
-    """POST /@ai-edit-conversations
-
-    Body: { schema, version, state }
-    Proxies to POST {edit_backend_url}/conversations
-    """
 
     def reply(self):
         body = json.loads(self.request.get("BODY", "{}"))
         return self._forward("POST", "/conversations", body)
 
 
-# ── POST /@ai-edit-messages ───────────────────────────────────────────────
-
-
 class AIEditSendMessage(_EditProxyBase):
-    """POST /@ai-edit-messages
-
-    Body: { conversation_id, message, ... }
-    Proxies to POST {edit_backend_url}/conversations/{id}/messages
-    """
 
     def reply(self):
         body = json.loads(self.request.get("BODY", "{}"))
@@ -175,14 +137,7 @@ class AIEditSendMessage(_EditProxyBase):
         )
 
 
-# ── GET /@ai-edit-jobs ────────────────────────────────────────────────────
-
-
 class AIEditPollJob(_EditProxyBase):
-    """GET /@ai-edit-jobs?job_id=...
-
-    Proxies to GET {edit_backend_url}/jobs/{id}
-    """
 
     def reply(self):
         job_id = self.request.get("job_id", "")
@@ -192,15 +147,7 @@ class AIEditPollJob(_EditProxyBase):
         return self._forward("GET", f"/jobs/{job_id}")
 
 
-# ── POST /@ai-edit-job-cancel ─────────────────────────────────────────────
-
-
 class AIEditCancelJob(_EditProxyBase):
-    """POST /@ai-edit-job-cancel
-
-    Body: { job_id }
-    Proxies to POST {edit_backend_url}/jobs/{id}/cancel
-    """
 
     def reply(self):
         body = json.loads(self.request.get("BODY", "{}"))

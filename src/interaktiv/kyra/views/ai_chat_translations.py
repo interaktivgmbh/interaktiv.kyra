@@ -6,7 +6,6 @@ from plone import api
 
 
 class AIChatTranslationsView(BrowserView):
-    """Simple view to expose current language + note for the AI chat widget."""
 
     NOTICE_MSGID = 'trans_ai_chat_language_note'
 

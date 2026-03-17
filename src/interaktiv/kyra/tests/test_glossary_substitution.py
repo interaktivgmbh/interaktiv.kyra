@@ -4,7 +4,6 @@ from interaktiv.kyra.services.ai_actions import _apply_glossary_substitution
 
 
 class TestGlossarySubstitution(unittest.TestCase):
-    """Test pre-translation glossary substitution logic."""
 
     def test_empty_glossary(self):
         result = _apply_glossary_substitution("Hallo Welt", {})

@@ -16,14 +16,7 @@ from zope.publisher.interfaces import IPublishTraverse
 FILES_STORAGE_KEY = "interaktiv.kyra.prompt_files"
 
 
-# ---------------------------------------------------------------------------
-# Annotation helpers
-# ---------------------------------------------------------------------------
-
 def _get_files_store() -> Dict[str, List[Dict[str, Any]]]:
-    """Return the files store from portal annotations.
-    Structure: { "prompt_id": [ { file dict }, ... ], ... }
-    """
     portal = api.portal.get()
     annotations = IAnnotations(portal)
     store = annotations.get(FILES_STORAGE_KEY)
@@ -42,7 +35,6 @@ def _persist_store(store: Dict[str, List[Dict[str, Any]]]) -> None:
 def list_files(prompt_id: str) -> List[Dict[str, Any]]:
     store = _get_files_store()
     files = store.get(prompt_id, [])
-    # Return metadata only (no data field)
     return [
         {k: v for k, v in f.items() if k != "data"}
         for f in files
@@ -97,16 +89,11 @@ def delete_file(prompt_id: str, file_id: str) -> None:
 
 
 def delete_files_for_prompt(prompt_id: str) -> None:
-    """Remove all files for a prompt (called when prompt is deleted)."""
     store = _get_files_store()
     if prompt_id in store:
         del store[prompt_id]
         _persist_store(store)
 
-
-# ---------------------------------------------------------------------------
-# REST API Service — /@ai-prompt-files/{prompt_id}[/{file_id}]
-# ---------------------------------------------------------------------------
 
 @implementer(IPublishTraverse)
 class PromptFilesService(Service):
@@ -145,21 +132,17 @@ class PromptFilesService(Service):
 
     def _handle_get(self):
         if self.file_id:
-            # Return single file with data
             f = get_file(self.prompt_id, self.file_id)
             if f is None:
                 raise NotFound(f"File '{self.file_id}' not found")
             return f
-        # Return file list (metadata only)
         return {"files": list_files(self.prompt_id)}
 
     def _handle_post(self):
-        # Handle multipart file upload
         file_field = self.request.form.get("file")
         if file_field is None:
             raise BadRequest("No 'file' field in upload")
 
-        # Handle Zope FileUpload objects
         if hasattr(file_field, "read"):
             data = file_field.read()
             filename = getattr(file_field, "filename", "upload")

@@ -7,9 +7,7 @@ from zExceptions import BadRequest
 
 
 def _extract_text_from_data(data: Any) -> str:
-    """Extract the gateway's main response text."""
     if isinstance(data, dict):
-        # Check message.content pattern first
         message = data.get("message")
         if isinstance(message, dict):
             content = message.get("content")
@@ -28,7 +26,6 @@ def _extract_text_from_data(data: Any) -> str:
 
 
 def _build_prompt_payload(prompt: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a gateway-compatible prompt payload for temp prompt creation."""
     categories = prompt.get("categories") or []
     action_type = prompt.get("actionType") or "replace"
 
@@ -49,30 +46,6 @@ def _build_prompt_payload(prompt: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class AIAssistantRunService(ServiceBase):
-    """POST /@ai-assistant-run
-
-    Runs a prompt against selected text from the Slate editor
-    via the Kyra gateway and returns the result.
-
-    Request body:
-        {
-            "prompt": {
-                "id": "...",
-                "name": "...",
-                "text": "Instruction text...",
-                "actionType": "replace",
-                "categories": [...]
-            },
-            "selection": "The selected text in the editor...",
-            "language": "de"
-        }
-
-    Response:
-        {
-            "result": "Processed text...",
-            "actionType": "replace"
-        }
-    """
 
     def reply(self) -> Dict[str, Any]:
         data = json_body(self.request) or {}
@@ -109,7 +82,6 @@ class AIAssistantRunService(ServiceBase):
         if language:
             apply_payload["language"] = language
 
-        # Try applying via gateway prompts.apply (like kyra)
         remote_id = (
             prompt_data.get("gateway_id")
             or prompt_data.get("gatewayId")
@@ -118,8 +90,6 @@ class AIAssistantRunService(ServiceBase):
 
         gw_data = self.kyra.prompts.apply(remote_id, apply_payload)
 
-        # If the prompt doesn't exist on the gateway, create a temp prompt,
-        # apply it, then clean up
         temp_prompt_id = None
         if isinstance(gw_data, dict) and gw_data.get("error"):
             if prompt_text:
@@ -138,7 +108,6 @@ class AIAssistantRunService(ServiceBase):
                 gw_data = self.kyra.prompts.apply(
                     temp_prompt_id, apply_payload
                 )
-                # Clean up temp prompt
                 try:
                     self.kyra.prompts.delete(temp_prompt_id)
                 except Exception:

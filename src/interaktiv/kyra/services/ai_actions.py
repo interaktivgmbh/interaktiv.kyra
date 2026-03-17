@@ -52,7 +52,6 @@ def _max_translation_concurrency() -> int:
     env_val = os.getenv("KYRA_TRANSLATE_MAX_CONCURRENCY", "").strip()
     if env_val:
         return _get_int_env("KYRA_TRANSLATE_MAX_CONCURRENCY", TRANSLATION_MAX_CONCURRENCY_DEFAULT)
-    # No env override → use DeepL plan-based default
     return get_deepl_max_concurrency()
 
 
@@ -503,13 +502,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                 if hasattr(item, "blocks") and hasattr(item, "blocks_layout"):
                     source_blocks = getattr(item, "blocks", {})
                     if incremental and existing is not None:
-                        # Incremental mode: only translate NEW blocks
                         existing_blocks = getattr(existing, "blocks", {}) or {}
                         existing_block_ids = set(existing_blocks.keys())
                         source_block_ids = set(source_blocks.keys())
                         new_block_ids = source_block_ids - existing_block_ids
 
-                        # Merge: start with existing translated blocks, add new ones
                         blocks_copy = copy.deepcopy(dict(existing_blocks))
                         for block_id in new_block_ids:
                             new_block = copy.deepcopy(source_blocks[block_id])
@@ -529,7 +526,6 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     None,
                                 )
                             )
-                        # Remove blocks deleted from source
                         for removed_id in (existing_block_ids - source_block_ids):
                             blocks_copy.pop(removed_id, None)
                         logger.info(
@@ -539,7 +535,6 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                             len(existing_block_ids - source_block_ids),
                         )
                     else:
-                        # Full mode: translate all blocks
                         blocks_copy = copy.deepcopy(source_blocks)
                         for block in blocks_copy.values():
                             futures.append(
@@ -613,7 +608,6 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     preview_field,
                                     _rel_path(item),
                                 )
-            # Map tags/subjects using mapping table
             source_subjects = item.Subject() if callable(getattr(item, "Subject", None)) else ()
             if source_subjects and hasattr(existing, "setSubject"):
                 tag_mappings = _get_tag_mappings()
@@ -630,7 +624,6 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     len(mapped_tags),
                 )
 
-            # Copy topic vocabulary terms (controlled vocabulary — no translation needed)
             try:
                 source_topics = getattr(item, "topic", None)
                 logger.info(
@@ -772,7 +765,6 @@ def _translate_text_with_retry(
 
 
 def _get_glossary_map(source_lang: str, target_lang: str) -> Dict[str, str]:
-    """Return glossary entries for the given language pair, or empty dict."""
     try:
         entries = get_glossary_entries(source_lang, target_lang) or {}
         logger.info("[KYRA AI] glossary map for %s->%s: %d entries %s", source_lang, target_lang, len(entries), entries)
@@ -783,11 +775,6 @@ def _get_glossary_map(source_lang: str, target_lang: str) -> Dict[str, str]:
 
 
 def _apply_glossary_substitution(text: str, glossary: Dict[str, str]) -> str:
-    """Replace glossary source terms in *text* with their target terms.
-
-    Replaces longest terms first so that e.g. "Forschungszentrum Jülich"
-    is matched before "Forschungszentrum".  Case-insensitive matching.
-    """
     if not glossary or not text:
         return text
     original = text
@@ -811,11 +798,9 @@ def _translate_text(
     if not isinstance(text, str) or not text.strip():
         return text or ""
 
-    # Pre-process: substitute glossary terms before translation
     glossary = _get_glossary_map(source_lang, target_lang)
     text = _apply_glossary_substitution(text, glossary)
 
-    # Translate via DeepL
     try:
         deepl_result = deepl_translate_text(text, source_lang, target_lang)
         if deepl_result is not None:
@@ -984,7 +969,6 @@ def _looks_like_url(text: str) -> bool:
 
 
 def _looks_like_non_text(text: str) -> bool:
-    """Return True for values that are clearly not translatable text (colors, CSS values, booleans)."""
     if not isinstance(text, str):
         return False
     return bool(NON_TEXT_PATTERN.match(text.strip()))
@@ -1148,8 +1132,6 @@ def _translate_block_dict(
         if isinstance(obj, dict) and isinstance(obj.get("data"), str) and obj["data"].strip():
             obj["data"] = _translate_text(translator, obj["data"], source_lang, target_lang, strip_html=False)
 
-    # Translate text fields inside image subobjects (skipped by generic recursion
-    # because "image" is in SKIP_TRANSLATION_FIELDS)
     _IMAGE_TEXT_SUBFIELDS = ("alt", "title", "description", "rights", "caption")
     for img_key in ("image", "preview_image", "tpreview_image"):
         img_obj = block.get(img_key)
@@ -1240,11 +1222,9 @@ def _translate_slate_link(node: Dict[str, Any], target_lang: str):
 
 
 def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
-    """Rewrite image/URL references in blocks to point to translated content."""
     url = block.get("url")
     if not isinstance(url, str) or not url.strip():
         return
-    # Strip @@images/... suffix to get the content path
     content_path = url
     images_suffix = ""
     if "/@@images/" in content_path:
@@ -1259,7 +1239,6 @@ def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
         new_url = translated_path + images_suffix
         block["url"] = new_url
         logger.info("[KYRA AI IMAGE] rewrote block url: %s -> %s", url, new_url)
-    # Also rewrite @id if present (some blocks store it)
     at_id = block.get("@id")
     if isinstance(at_id, str) and at_id.strip():
         id_path = at_id
@@ -1271,7 +1250,6 @@ def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
         translated_id = _resolve_internal_link_translation(id_path, target_lang)
         if translated_id:
             block["@id"] = translated_id + id_suffix
-    # Rewrite href if present
     href = block.get("href")
     if isinstance(href, str) and href.strip():
         href_path = href
@@ -1286,20 +1264,16 @@ def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
 
 
 def _rewrite_urls_recursive(obj: Any, target_lang: str):
-    """Recursively walk blocks/dicts/lists and rewrite image URLs."""
     if isinstance(obj, dict):
-        # If it looks like a block, rewrite its image URLs
         if obj.get("url") or obj.get("@id") or obj.get("href"):
             _rewrite_block_image_urls(obj, target_lang)
-        # Recurse into nested blocks (e.g. grid columns have a "blocks" dict)
         nested_blocks = obj.get("blocks")
         if isinstance(nested_blocks, dict):
             for sub_block in nested_blocks.values():
                 _rewrite_urls_recursive(sub_block, target_lang)
-        # Recurse into other dict values
         for key, value in obj.items():
             if key in ("blocks",):
-                continue  # already handled
+                continue
             if isinstance(value, (dict, list)):
                 _rewrite_urls_recursive(value, target_lang)
     elif isinstance(obj, list):
@@ -1311,9 +1285,7 @@ def _translate_links_in_blocks(blocks: Dict[str, Any], target_lang: str):
     for block in blocks.values():
         if not isinstance(block, dict):
             continue
-        # Rewrite image/content URLs in all blocks recursively
         _rewrite_urls_recursive(block, target_lang)
-        # Rewrite slate links
         _translate_links_in_value(block.get("value"), target_lang)
         for field in BLOCK_SLATE_SUBOBJECTS.get(block.get("@type", ""), []):
             sub = block.get(field)
@@ -1328,7 +1300,6 @@ def _translate_links_in_blocks(blocks: Dict[str, Any], target_lang: str):
                     sub = block.get(f"{prefix}-{idx}")
                     if isinstance(sub, dict):
                         _translate_links_in_value(sub.get("value"), target_lang)
-        # Rewrite links in slateTable cells
         if block.get("@type") == "slateTable":
             table = block.get("table")
             if isinstance(table, dict):

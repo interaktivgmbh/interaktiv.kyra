@@ -4,7 +4,6 @@ from Products.GenericSetup.tool import SetupTool
 from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
 
 
-# noinspection PyUnusedLocal
 def upgrade(site_setup: Optional[SetupTool] = None) -> None:
     registry = api.portal.get_tool("portal_registry")
     interface_name = IAIAssistantSchema.__identifier__

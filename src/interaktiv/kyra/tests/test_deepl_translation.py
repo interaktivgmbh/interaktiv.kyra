@@ -20,7 +20,6 @@ from zope.annotation.interfaces import IAnnotations
 
 
 class TestLanguageMappings(unittest.TestCase):
-    """Test DeepL language code mappings."""
 
     def test_deepl_target_lang_en(self):
         self.assertEqual(_deepl_target_lang("en"), "EN-US")
@@ -64,7 +63,6 @@ class TestLanguageMappings(unittest.TestCase):
 
 
 class TestPairKey(unittest.TestCase):
-    """Test language pair key generation."""
 
     def test_pair_key_basic(self):
         self.assertEqual(_pair_key("de", "en"), "de:en")
@@ -77,7 +75,6 @@ class TestPairKey(unittest.TestCase):
 
 
 class TestGlossaryStore(unittest.TestCase):
-    """Test local glossary entry storage (add, get, remove)."""
 
     layer = INTERAKTIV_KYRA_FUNCTIONAL_TESTING
     product_name = "interaktiv.kyra"
@@ -85,7 +82,6 @@ class TestGlossaryStore(unittest.TestCase):
     def setUp(self):
         self.portal = self.layer["portal"]
         setRoles(self.portal, TEST_USER_ID, ["Manager"])
-        # Clean up glossary entries
         annotations = IAnnotations(self.portal)
         annotations[GLOSSARY_ENTRIES_KEY] = {}
 
@@ -155,7 +151,6 @@ class TestGlossaryStore(unittest.TestCase):
 
 
 class TestSyncGlossaryToDeepL(unittest.TestCase):
-    """Test glossary sync to DeepL API (v2 bilingual)."""
 
     layer = INTERAKTIV_KYRA_FUNCTIONAL_TESTING
     product_name = "interaktiv.kyra"
@@ -171,7 +166,6 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
     def test_sync_creates_bilingual_glossary(self, mock_get_client):
         from interaktiv.kyra.services.deepl_translation import sync_glossary_to_deepl
 
-        # setup
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_client.list_glossaries.return_value = []
@@ -188,10 +182,8 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
 
         add_glossary_entry("Forschung", "Research", "de", "en")
 
-        # do it
         result = sync_glossary_to_deepl()
 
-        # postcondition
         self.assertEqual(result, "new-glossary-id-123")
         mock_client.create_glossary.assert_called_once_with(
             GLOSSARY_NAME,
@@ -204,7 +196,6 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
     def test_sync_creates_multiple_glossaries_per_pair(self, mock_get_client):
         from interaktiv.kyra.services.deepl_translation import sync_glossary_to_deepl
 
-        # setup
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_client.list_glossaries.return_value = []
@@ -224,10 +215,8 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
         add_glossary_entry("Forschung", "Research", "de", "en")
         add_glossary_entry("Research", "Forschung", "en", "de")
 
-        # do it
         result = sync_glossary_to_deepl()
 
-        # postcondition
         self.assertEqual(mock_client.create_glossary.call_count, 2)
         annotations = IAnnotations(self.portal)
         ids = annotations.get(GLOSSARY_IDS_KEY, {})
@@ -238,7 +227,6 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
     def test_sync_deletes_old_glossaries_before_creating(self, mock_get_client):
         from interaktiv.kyra.services.deepl_translation import sync_glossary_to_deepl
 
-        # setup
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -259,10 +247,8 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
 
         add_glossary_entry("Forschung", "Research", "de", "en")
 
-        # do it
         sync_glossary_to_deepl()
 
-        # postcondition
         mock_client.delete_glossary.assert_called_once_with("old-id")
         mock_client.create_glossary.assert_called_once()
 
@@ -293,7 +279,6 @@ class TestSyncGlossaryToDeepL(unittest.TestCase):
 
 
 class TestPullEntriesFromDeepL(unittest.TestCase):
-    """Test pulling glossary entries from DeepL into local store."""
 
     layer = INTERAKTIV_KYRA_FUNCTIONAL_TESTING
     product_name = "interaktiv.kyra"
@@ -308,7 +293,6 @@ class TestPullEntriesFromDeepL(unittest.TestCase):
     def test_pull_imports_new_entries(self, mock_store):
         from interaktiv.kyra.services.deepl_translation import _pull_entries_from_deepl
 
-        # setup - use real store
         mock_store.side_effect = lambda: IAnnotations(self.portal).setdefault(
             GLOSSARY_ENTRIES_KEY, {}
         )
@@ -325,16 +309,13 @@ class TestPullEntriesFromDeepL(unittest.TestCase):
             "Energie": "Energy",
         }
 
-        # do it
         imported = _pull_entries_from_deepl(mock_client)
 
-        # postcondition
         self.assertEqual(imported, 2)
 
     def test_pull_does_not_overwrite_existing(self):
         from interaktiv.kyra.services.deepl_translation import _pull_entries_from_deepl
 
-        # setup - add local entry
         add_glossary_entry("Forschung", "Studies", "de", "en")
 
         mock_client = MagicMock()
@@ -345,18 +326,16 @@ class TestPullEntriesFromDeepL(unittest.TestCase):
         mock_glossary.name = "Remote"
         mock_client.list_glossaries.return_value = [mock_glossary]
         mock_client.get_glossary_entries.return_value = {
-            "Forschung": "Research",  # different translation — should NOT overwrite
-            "Energie": "Energy",      # new entry — should be added
+            "Forschung": "Research",
+            "Energie": "Energy",
         }
 
-        # do it
         imported = _pull_entries_from_deepl(mock_client)
 
-        # postcondition
-        self.assertEqual(imported, 1)  # only Energie is new
+        self.assertEqual(imported, 1)
         entries = get_glossary_entries("de", "en")
-        self.assertEqual(entries["Forschung"], "Studies")  # kept local version
-        self.assertEqual(entries["Energie"], "Energy")     # added remote entry
+        self.assertEqual(entries["Forschung"], "Studies")
+        self.assertEqual(entries["Energie"], "Energy")
 
     def test_pull_handles_empty_glossary_list(self):
         from interaktiv.kyra.services.deepl_translation import _pull_entries_from_deepl
@@ -369,7 +348,6 @@ class TestPullEntriesFromDeepL(unittest.TestCase):
 
 
 class TestDeepLTranslateText(unittest.TestCase):
-    """Test the deepl_translate_text function."""
 
     layer = INTERAKTIV_KYRA_FUNCTIONAL_TESTING
     product_name = "interaktiv.kyra"
@@ -437,7 +415,6 @@ class TestDeepLTranslateText(unittest.TestCase):
 
 
 class TestImportGlossaryFromCsv(unittest.TestCase):
-    """Test CSV import of glossary entries."""
 
     layer = INTERAKTIV_KYRA_FUNCTIONAL_TESTING
     product_name = "interaktiv.kyra"
