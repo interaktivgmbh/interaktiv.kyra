@@ -358,6 +358,53 @@ class TestPullEntriesFromDeepL(unittest.TestCase):
         self.assertEqual(entries["Forschung"], "Studies")  # kept local version
         self.assertEqual(entries["Energie"], "Energy")     # added remote entry
 
+    def test_pull_removes_entries_deleted_from_deepl(self):
+        from interaktiv.kyra.services.deepl_translation import _pull_entries_from_deepl
+
+        # setup - add local entries
+        add_glossary_entry("Forschung", "Research", "de", "en")
+        add_glossary_entry("Energie", "Energy", "de", "en")
+        add_glossary_entry("Wasserstoff", "Hydrogen", "de", "en")
+
+        mock_client = MagicMock()
+        mock_glossary = MagicMock()
+        mock_glossary.glossary_id = "remote-id"
+        mock_glossary.source_lang = "DE"
+        mock_glossary.target_lang = "EN"
+        mock_glossary.name = "Remote"
+        mock_client.list_glossaries.return_value = [mock_glossary]
+        # DeepL only has Forschung — Energie and Wasserstoff were deleted there
+        mock_client.get_glossary_entries.return_value = {
+            "Forschung": "Research",
+        }
+
+        # do it
+        changed = _pull_entries_from_deepl(mock_client)
+
+        # postcondition — stale local entries should be removed
+        self.assertEqual(changed, 2)  # Energie + Wasserstoff removed
+        entries = get_glossary_entries("de", "en")
+        self.assertEqual(entries, {"Forschung": "Research"})
+        self.assertNotIn("Energie", entries)
+        self.assertNotIn("Wasserstoff", entries)
+
+    def test_pull_removes_entries_for_pair_without_remote_glossary(self):
+        from interaktiv.kyra.services.deepl_translation import _pull_entries_from_deepl
+
+        # setup - add local entries for a pair that has no remote glossary
+        add_glossary_entry("Forschung", "Research", "de", "en")
+
+        mock_client = MagicMock()
+        mock_client.list_glossaries.return_value = []  # no remote glossaries at all
+
+        # do it
+        changed = _pull_entries_from_deepl(mock_client)
+
+        # postcondition — local entries should be cleared
+        self.assertEqual(changed, 1)
+        entries = get_glossary_entries("de", "en")
+        self.assertEqual(entries, {})
+
     def test_pull_handles_empty_glossary_list(self):
         from interaktiv.kyra.services.deepl_translation import _pull_entries_from_deepl
 

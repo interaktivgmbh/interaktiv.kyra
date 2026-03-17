@@ -31,7 +31,7 @@ from zope.interface import implementer
 from zope.publisher.interfaces import IPublishTraverse
 
 PLAN_STORAGE_KEY = "interaktiv.kyra.ai_actions_plans"
-TRANSLATION_MAX_CONCURRENCY_DEFAULT = 16
+TRANSLATION_MAX_CONCURRENCY_DEFAULT = 3
 TRANSLATION_TIMEOUT_DEFAULT = 60
 TRANSLATION_RETRIES_DEFAULT = 2
 TRANSLATION_BACKOFF_BASE = 0.5
@@ -871,6 +871,28 @@ SKIP_TRANSLATION_FIELDS = {
     "fixed",
     "reversed",
     "inverted",
+    "bg_color",
+    "bgColor",
+    "bg_image",
+    "height",
+    "width",
+    "maxWidth",
+    "columns_count",
+    "count",
+    "researchGroup",
+    "openLinkInNewTab",
+    "linkHref",
+    "preview_image",
+    "tpreview_image",
+    "show_block_count",
+    "show_arrows",
+    "right_arrows",
+    "b_size",
+    "batch_size",
+    "querystring",
+    "query",
+    "sort_on",
+    "sort_order",
 }
 
 BLOCK_TEXT_FIELDS = {
@@ -895,10 +917,14 @@ BLOCK_TEXT_FIELDS = {
     "tabBlock": ["headline"],
     "sliderNew": [],
     "quote": ["author", "additional_information"],
-    "parallaxBlock": ["text"],
+    "parallaxBlock": ["text", "alt"],
     "highlightTeaser": ["title", "description", "linkTitle"],
     "highlightTeaserParallax": ["title", "description", "linkTitle"],
-    "highlightTeaserWithoutButton": ["title", "description"],
+    "highlightTeaserWithoutButton": ["title", "description", "alt"],
+    "carousel": ["headline"],
+    "teaserTransparent": ["title", "description", "head_title"],
+    "teaserTransparentGrid": [],
+    "form": ["title", "description", "cancel_label", "send_message", "default_subject"],
     "teaserWithLink": ["title", "description", "button"],
     "introduction": ["heading"],
     "aktuelles": ["headline", "title", "head_title", "description", "ttitle", "thead_title", "tdescription"],
@@ -907,6 +933,13 @@ BLOCK_TEXT_FIELDS = {
     "memberList": ["headline"],
     "icon": ["heading"],
     "socialMedia": ["headline", "description", "ydescription"],
+    "azlist": ["title", "description"],
+    "image": ["alt", "description", "rights"],
+    "__button": ["title", "text"],
+    "__grid": ["title", "headline", "description", "text"],
+    "jofilter": ["title"],
+    "teaserTab": ["headline"],
+    "buttonBlock": ["title", "text"],
 }
 
 BLOCK_NESTED_ARRAYS = {
@@ -914,9 +947,11 @@ BLOCK_NESTED_ARRAYS = {
     "sliderNew": [("slides", ["head_title", "title", "description"])],
     "institutslider": [("slides", ["title", "description"])],
     "teaserWithLink": [("links", ["title"])],
+    "teaserTab": [("columns", ["title", "description"])],
+    "carousel": [("columns", ["title", "description"])],
 }
 
-BLOCKS_WITH_SLATE_VALUE = {"quote", "textPillWithStyle"}
+BLOCKS_WITH_SLATE_VALUE = {"quote", "textPillWithStyle", "tabBlock"}
 
 BLOCK_SLATE_SUBOBJECTS = {
     "introduction": ["about", "topics"],
@@ -928,15 +963,27 @@ BLOCK_DYNAMIC_SLATE_FIELDS = {
 
 BLOCK_RICHTEXT_HTML_FIELDS = {
     "icon": ["description"],
+    "form": ["mail_header"],
 }
 
 URL_PATTERN = re.compile(r"^(https?://|/|resolveuid|data:)", re.IGNORECASE)
+NON_TEXT_PATTERN = re.compile(
+    r"^(#[0-9a-fA-F]{3,8}|[0-9]+(%|px|em|rem|vh|vw|pt)?|rgba?\(.*\)|true|false|none|null|default|left|right|center|top|bottom|auto)$",
+    re.IGNORECASE,
+)
 
 
 def _looks_like_url(text: str) -> bool:
     if not isinstance(text, str):
         return False
     return bool(URL_PATTERN.match(text.strip()))
+
+
+def _looks_like_non_text(text: str) -> bool:
+    """Return True for values that are clearly not translatable text (colors, CSS values, booleans)."""
+    if not isinstance(text, str):
+        return False
+    return bool(NON_TEXT_PATTERN.match(text.strip()))
 
 
 def _is_block_id(value: str) -> bool:
@@ -953,18 +1000,21 @@ def _translate_block_strings(
     block_type = block.get("@type", "")
     richtext_handled = set(BLOCK_RICHTEXT_HTML_FIELDS.get(block_type, []))
     slate_sub_handled = set(BLOCK_SLATE_SUBOBJECTS.get(block_type, []))
+    special_handled = set(BLOCK_TEXT_FIELDS.get(block_type, []))
     dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(block_type)
     dynamic_prefix = dynamic_def[0] if dynamic_def else None
 
     for key, value in list(block.items()):
         if key in SKIP_TRANSLATION_FIELDS:
             continue
+        if key in special_handled:
+            continue
         if key in richtext_handled or key in slate_sub_handled:
             continue
         if dynamic_prefix and key.startswith(f"{dynamic_prefix}-"):
             continue
         if isinstance(value, str):
-            if value.strip() and not _looks_like_url(value):
+            if value.strip() and not _looks_like_url(value) and not _looks_like_non_text(value):
                 block[key] = _translate_text(translator, value, source_lang, target_lang)
         elif isinstance(value, dict):
             if value.get("@type"):
@@ -986,7 +1036,7 @@ def _translate_block_list(
         return
     for idx, item in enumerate(lst):
         if isinstance(item, str):
-            if item.strip() and not _looks_like_url(item):
+            if item.strip() and not _looks_like_url(item) and not _looks_like_non_text(item):
                 lst[idx] = _translate_text(translator, item, source_lang, target_lang)
         elif isinstance(item, dict):
             if item.get("@type"):
@@ -1050,12 +1100,32 @@ def _translate_block_dict(
     elif btype == "html":
         html = block.get("html") or ""
         block["html"] = _translate_text(translator, html, source_lang, target_lang, strip_html=False)
+    elif btype == "slateTable":
+        table = block.get("table")
+        if isinstance(table, dict):
+            rows = table.get("rows")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    cells = row.get("cells")
+                    if not isinstance(cells, list):
+                        continue
+                    for cell in cells:
+                        if isinstance(cell, dict):
+                            cell_value = cell.get("value")
+                            if isinstance(cell_value, list):
+                                for node in cell_value:
+                                    _translate_slate_node(translator, node, source_lang, target_lang)
 
     slate_sub_fields = BLOCK_SLATE_SUBOBJECTS.get(btype, [])
     for field in slate_sub_fields:
         sub = block.get(field)
         if isinstance(sub, dict):
             _translate_slate_value(translator, sub, source_lang, target_lang)
+        elif isinstance(sub, list):
+            for node in sub:
+                _translate_slate_node(translator, node, source_lang, target_lang)
 
     dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(btype)
     if dynamic_def:
@@ -1073,6 +1143,17 @@ def _translate_block_dict(
         obj = block.get(field)
         if isinstance(obj, dict) and isinstance(obj.get("data"), str) and obj["data"].strip():
             obj["data"] = _translate_text(translator, obj["data"], source_lang, target_lang, strip_html=False)
+
+    # Translate text fields inside image subobjects (skipped by generic recursion
+    # because "image" is in SKIP_TRANSLATION_FIELDS)
+    _IMAGE_TEXT_SUBFIELDS = ("alt", "title", "description", "rights", "caption")
+    for img_key in ("image", "preview_image", "tpreview_image"):
+        img_obj = block.get(img_key)
+        if isinstance(img_obj, dict):
+            for sf in _IMAGE_TEXT_SUBFIELDS:
+                val = img_obj.get(sf)
+                if isinstance(val, str) and val.strip() and not _looks_like_url(val):
+                    img_obj[sf] = _translate_text(translator, val, source_lang, target_lang)
 
     _translate_block_strings(translator, block, source_lang, target_lang)
     _translate_block_special_fields(translator, block, source_lang, target_lang)
@@ -1243,6 +1324,15 @@ def _translate_links_in_blocks(blocks: Dict[str, Any], target_lang: str):
                     sub = block.get(f"{prefix}-{idx}")
                     if isinstance(sub, dict):
                         _translate_links_in_value(sub.get("value"), target_lang)
+        # Rewrite links in slateTable cells
+        if block.get("@type") == "slateTable":
+            table = block.get("table")
+            if isinstance(table, dict):
+                for row in (table.get("rows") or []):
+                    if isinstance(row, dict):
+                        for cell in (row.get("cells") or []):
+                            if isinstance(cell, dict):
+                                _translate_links_in_value(cell.get("value"), target_lang)
 
 
 def _translate_links_in_value(value: Any, target_lang: str):
@@ -1390,7 +1480,6 @@ class AIActionsService(ServiceBase):
 
 
 _SYNC_TOLERANCE_SECONDS = 5
-
 
 class AITranslationStatusService(Service):
 

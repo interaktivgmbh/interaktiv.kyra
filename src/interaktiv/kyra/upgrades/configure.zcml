@@ -28,4 +28,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1020_to_v1030.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1030"
+            destination="1040"
+            title="Add AI Prompt Manager control panel"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1030_to_v1040.upgrade"
+    />
 </configure>
