@@ -288,7 +288,7 @@ def _collect_quotes(block_items: List[Any]) -> List[Dict[str, str]]:
         attribution = (
             block.get("attribution") or block.get("source") or block.get("cite") or block.get("citation")
         )
-            if isinstance(quote_text, str):
+        if isinstance(quote_text, str):
             cleaned_quote = strip_html(quote_text)
             if cleaned_quote:
                 quotes.append(
