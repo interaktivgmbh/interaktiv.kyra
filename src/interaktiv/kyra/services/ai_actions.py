@@ -301,7 +301,10 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 translations = manager.get_translations() or {}
                 existing = translations.get(target_lang)
-                if existing and not overwrite:
+                # Always update LRFs — their translation is created at
+                # site setup and would otherwise always be skipped.
+                is_lrf = getattr(item, "portal_type", "") == "LRF"
+                if existing and not overwrite and not is_lrf:
                     details.append(
                         {
                             "source": _rel_path(item),
@@ -649,6 +652,22 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                             )
             except Exception as exc:
                 logger.debug("[KYRA AI TRANSLATE] scale generation: %s", exc)
+            # Copy non-translatable metadata (links, emails, etc.) as-is
+            _META_COPY_FIELDS = (
+                "portal_footer_newsletter",
+                "portal_footer_directions",
+                "portal_footer_contact_mail",
+            )
+            for copy_field in _META_COPY_FIELDS:
+                src_val = getattr(item, copy_field, None)
+                if src_val and hasattr(existing, copy_field):
+                    try:
+                        setattr(existing, copy_field, src_val)
+                    except Exception:
+                        logger.debug(
+                            "[KYRA AI TRANSLATE] could not copy field %s", copy_field
+                        )
+
             # Map tags/subjects using mapping table
             source_subjects = item.Subject() if callable(getattr(item, "Subject", None)) else ()
             if source_subjects and hasattr(existing, "setSubject"):
