@@ -18,6 +18,7 @@ from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
 from passlib.exc import ExpectedTypeError
 from plone.i18n.normalizer import idnormalizer
+from plone.namedfile.file import NamedBlobImage, NamedBlobFile
 from persistent.list import PersistentList
 from persistent.mapping import PersistentMapping
 from plone import api
@@ -599,7 +600,26 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         src_val = None
                     if src_val:
                         try:
-                            setattr(existing, preview_field, copy.deepcopy(src_val))
+                            # NamedBlobImage/NamedBlobFile contain ZODB Blobs —
+                            # copy.deepcopy produces objects whose blob data is
+                            # inaccessible.  Create a fresh instance instead.
+                            if isinstance(src_val, NamedBlobImage):
+                                new_val = NamedBlobImage(
+                                    data=src_val.data,
+                                    contentType=src_val.contentType,
+                                    filename=src_val.filename,
+                                )
+                                setattr(existing, preview_field, new_val)
+                            elif isinstance(src_val, NamedBlobFile):
+                                new_val = NamedBlobFile(
+                                    data=src_val.data,
+                                    contentType=src_val.contentType,
+                                    filename=src_val.filename,
+                                )
+                                setattr(existing, preview_field, new_val)
+                            else:
+                                # RelationValue or other — direct assignment
+                                setattr(existing, preview_field, src_val)
                         except Exception:
                             try:
                                 setattr(existing, preview_field, src_val)
@@ -609,6 +629,26 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     preview_field,
                                     _rel_path(item),
                                 )
+            # Force image scale generation so @@images URLs work immediately
+            try:
+                from zope.component import getMultiAdapter
+                images_view = getMultiAdapter(
+                    (existing, existing.REQUEST), name="images"
+                )
+                for pf in ("preview_image",):
+                    field_val = getattr(existing, pf, None)
+                    if field_val is not None and hasattr(field_val, "getImageSize"):
+                        w, h = field_val.getImageSize()
+                        if w and h:
+                            # Calling scale() with pre=False generates the
+                            # actual scale data and stores it in annotations.
+                            images_view.scale(pf, width=w, height=h, pre=False)
+                            logger.info(
+                                "[KYRA AI TRANSLATE] generated image scale for %s on %s",
+                                pf, _rel_path(existing),
+                            )
+            except Exception as exc:
+                logger.debug("[KYRA AI TRANSLATE] scale generation: %s", exc)
             # Map tags/subjects using mapping table
             source_subjects = item.Subject() if callable(getattr(item, "Subject", None)) else ()
             if source_subjects and hasattr(existing, "setSubject"):
@@ -1235,47 +1275,38 @@ def _translate_slate_link(node: Dict[str, Any], target_lang: str):
                 node["url"] = translated_path
 
 
+def _strip_images_suffix(path: str) -> Tuple[str, str]:
+    """Split a path into (content_path, @@images/... suffix)."""
+    if "/@@images/" in path:
+        parts = path.split("/@@images/", 1)
+        return parts[0], "/@@images/" + parts[1]
+    if path.endswith("/@@images"):
+        return path[: -len("/@@images")], "/@@images"
+    return path, ""
+
+
 def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
     """Rewrite image/URL references in blocks to point to translated content."""
+    # Rewrite url if present
     url = block.get("url")
-    if not isinstance(url, str) or not url.strip():
-        return
-    # Strip @@images/... suffix to get the content path
-    content_path = url
-    images_suffix = ""
-    if "/@@images/" in content_path:
-        parts = content_path.split("/@@images/", 1)
-        content_path = parts[0]
-        images_suffix = "/@@images/" + parts[1]
-    elif content_path.endswith("/@@images"):
-        content_path = content_path[: -len("/@@images")]
-        images_suffix = "/@@images"
-    translated_path = _resolve_internal_link_translation(content_path, target_lang)
-    if translated_path:
-        new_url = translated_path + images_suffix
-        block["url"] = new_url
-        logger.info("[KYRA AI IMAGE] rewrote block url: %s -> %s", url, new_url)
-    # Also rewrite @id if present (some blocks store it)
+    if isinstance(url, str) and url.strip():
+        content_path, images_suffix = _strip_images_suffix(url)
+        translated_path = _resolve_internal_link_translation(content_path, target_lang)
+        if translated_path:
+            new_url = translated_path + images_suffix
+            block["url"] = new_url
+            logger.info("[KYRA AI IMAGE] rewrote block url: %s -> %s", url, new_url)
+    # Rewrite @id if present
     at_id = block.get("@id")
     if isinstance(at_id, str) and at_id.strip():
-        id_path = at_id
-        id_suffix = ""
-        if "/@@images/" in id_path:
-            parts = id_path.split("/@@images/", 1)
-            id_path = parts[0]
-            id_suffix = "/@@images/" + parts[1]
+        id_path, id_suffix = _strip_images_suffix(at_id)
         translated_id = _resolve_internal_link_translation(id_path, target_lang)
         if translated_id:
             block["@id"] = translated_id + id_suffix
     # Rewrite href if present
     href = block.get("href")
     if isinstance(href, str) and href.strip():
-        href_path = href
-        href_suffix = ""
-        if "/@@images/" in href_path:
-            parts = href_path.split("/@@images/", 1)
-            href_path = parts[0]
-            href_suffix = "/@@images/" + parts[1]
+        href_path, href_suffix = _strip_images_suffix(href)
         translated_href = _resolve_internal_link_translation(href_path, target_lang)
         if translated_href:
             block["href"] = translated_href + href_suffix
