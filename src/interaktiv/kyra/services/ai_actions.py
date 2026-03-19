@@ -18,6 +18,7 @@ from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
 from passlib.exc import ExpectedTypeError
 from plone.i18n.normalizer import idnormalizer
+from plone.namedfile.file import NamedBlobImage, NamedBlobFile
 from persistent.list import PersistentList
 from persistent.mapping import PersistentMapping
 from plone import api
@@ -300,7 +301,10 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 translations = manager.get_translations() or {}
                 existing = translations.get(target_lang)
-                if existing and not overwrite:
+                # Always update LRFs — their translation is created at
+                # site setup and would otherwise always be skipped.
+                is_lrf = getattr(item, "portal_type", "") == "LRF"
+                if existing and not overwrite and not is_lrf:
                     details.append(
                         {
                             "source": _rel_path(item),
@@ -419,6 +423,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         _META_TEXT_FIELDS = (
+            # Document / general
             "preview_caption",
             "image_caption",
             "subtitle",
@@ -426,6 +431,16 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             "footer_header",
             "footer_text",
             "short_header_text",
+            # Award
+            "location",
+            # Project — translatable text fields
+            "project_coordinator",
+            "funding_program",
+            "link_further_information_text",
+            *(f"external_funding_provider_{i}" for i in range(1, 4)),
+            *(f"external_funding_provider_{i}_text" for i in range(1, 4)),
+            *(f"project_partner_{i}" for i in range(1, 11)),
+            *(f"project_partner_{i}_text" for i in range(1, 11)),
         )
 
         try:
@@ -491,6 +506,31 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     )),
                                 )[1],
                                 source_val,
+                            ),
+                            None,
+                        )
+                    )
+
+                # Translate RichText fields (stored as RichTextValue objects)
+                _RICHTEXT_FIELDS = ("detailed_description",)
+                for rt_field in _RICHTEXT_FIELDS:
+                    rt_val = getattr(item, rt_field, None)
+                    if rt_val is None or not hasattr(existing, rt_field):
+                        continue
+                    raw_html = getattr(rt_val, "raw", None) or ""
+                    if not isinstance(raw_html, str) or not raw_html.strip():
+                        continue
+                    futures.append(
+                        (
+                            "richtext",
+                            executor.submit(
+                                lambda txt, fn=rt_field, mt=getattr(rt_val, "mimeType", "text/html"): (
+                                    setSite(portal),
+                                    (fn, _translate_text_with_retry(
+                                        translator, txt, source_lang, target_lang, True, False,
+                                    ), mt),
+                                )[1],
+                                raw_html,
                             ),
                             None,
                         )
@@ -577,6 +617,19 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                 logger.info("[KYRA AI TRANSLATE] metadata field %s translated", fn)
                             except Exception:
                                 logger.debug("[KYRA AI] could not set metadata field %s", fn)
+                    elif kind == "richtext" and isinstance(result, tuple) and len(result) == 3:
+                        fn, translated_html, mime = result
+                        if isinstance(translated_html, str) and translated_html.strip():
+                            try:
+                                from plone.app.textfield.value import RichTextValue
+                                setattr(
+                                    existing,
+                                    fn,
+                                    RichTextValue(translated_html, mime, "text/x-html-safe"),
+                                )
+                                logger.info("[KYRA AI TRANSLATE] richtext field %s translated", fn)
+                            except Exception:
+                                logger.debug("[KYRA AI] could not set richtext field %s", fn)
 
             if blocks_copy is not None:
                 _translate_links_in_blocks(blocks_copy, target_lang)
@@ -591,7 +644,14 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         api.content.rename(obj=existing, new_id=new_id, safe_id=True)
                 except Exception:
                     logger.debug("[KYRA AI] could not rename translation to match translated title")
-            for preview_field in ("preview_image", "preview_image_link"):
+            _IMAGE_FIELDS = (
+                "preview_image",
+                "preview_image_link",
+                "image",  # Project logo
+                *(f"external_funding_provider_{i}_logo" for i in range(1, 4)),
+                *(f"project_partner_{i}_logo" for i in range(1, 11)),
+            )
+            for preview_field in _IMAGE_FIELDS:
                 if hasattr(item, preview_field):
                     try:
                         src_val = getattr(item, preview_field, None)
@@ -599,7 +659,26 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         src_val = None
                     if src_val:
                         try:
-                            setattr(existing, preview_field, copy.deepcopy(src_val))
+                            # NamedBlobImage/NamedBlobFile contain ZODB Blobs —
+                            # copy.deepcopy produces objects whose blob data is
+                            # inaccessible.  Create a fresh instance instead.
+                            if isinstance(src_val, NamedBlobImage):
+                                new_val = NamedBlobImage(
+                                    data=src_val.data,
+                                    contentType=src_val.contentType,
+                                    filename=src_val.filename,
+                                )
+                                setattr(existing, preview_field, new_val)
+                            elif isinstance(src_val, NamedBlobFile):
+                                new_val = NamedBlobFile(
+                                    data=src_val.data,
+                                    contentType=src_val.contentType,
+                                    filename=src_val.filename,
+                                )
+                                setattr(existing, preview_field, new_val)
+                            else:
+                                # RelationValue or other — direct assignment
+                                setattr(existing, preview_field, src_val)
                         except Exception:
                             try:
                                 setattr(existing, preview_field, src_val)
@@ -609,6 +688,86 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                                     preview_field,
                                     _rel_path(item),
                                 )
+            # Force image scale generation so @@images URLs work immediately
+            try:
+                from zope.component import getMultiAdapter
+                images_view = getMultiAdapter(
+                    (existing, existing.REQUEST), name="images"
+                )
+                for pf in ("preview_image",):
+                    field_val = getattr(existing, pf, None)
+                    if field_val is not None and hasattr(field_val, "getImageSize"):
+                        w, h = field_val.getImageSize()
+                        if w and h:
+                            # Calling scale() with pre=False generates the
+                            # actual scale data and stores it in annotations.
+                            images_view.scale(pf, width=w, height=h, pre=False)
+                            logger.info(
+                                "[KYRA AI TRANSLATE] generated image scale for %s on %s",
+                                pf, _rel_path(existing),
+                            )
+            except Exception as exc:
+                logger.debug("[KYRA AI TRANSLATE] scale generation: %s", exc)
+            # Copy non-translatable metadata (links, emails, dates, choices) as-is
+            _META_COPY_FIELDS = (
+                # LRF portal footer
+                "portal_footer_newsletter",
+                "portal_footer_directions",
+                "portal_footer_contact_mail",
+                # Event
+                "start",
+                "end",
+                "whole_day",
+                "open_end",
+                # Award
+                "award_date_year",
+                "award_date_month",
+                "award_type",
+                # Project — dates, budget, choices
+                "project_type",
+                "project_start_month",
+                "project_start_year",
+                "project_end_month",
+                "project_end_year",
+                "project_budget",
+                "involved_institutes",
+            )
+            for copy_field in _META_COPY_FIELDS:
+                src_val = getattr(item, copy_field, None)
+                if src_val and hasattr(existing, copy_field):
+                    try:
+                        setattr(existing, copy_field, src_val)
+                    except Exception:
+                        logger.debug(
+                            "[KYRA AI TRANSLATE] could not copy field %s", copy_field
+                        )
+
+            # Rewrite internal link fields to point to translated content
+            _META_LINK_FIELDS = (
+                # Award
+                "website_link",
+                # Project
+                "link_further_information",
+                *(f"external_funding_provider_{i}_link" for i in range(1, 4)),
+                *(f"project_partner_{i}_link" for i in range(1, 11)),
+            )
+            for link_field in _META_LINK_FIELDS:
+                src_val = getattr(item, link_field, None)
+                if not src_val or not isinstance(src_val, str) or not hasattr(existing, link_field):
+                    continue
+                translated_url = _resolve_internal_link_translation(src_val, target_lang)
+                try:
+                    setattr(existing, link_field, translated_url or src_val)
+                    if translated_url:
+                        logger.info(
+                            "[KYRA AI TRANSLATE] link field %s: %s -> %s",
+                            link_field, src_val, translated_url,
+                        )
+                except Exception:
+                    logger.debug(
+                        "[KYRA AI TRANSLATE] could not set link field %s", link_field
+                    )
+
             # Map tags/subjects using mapping table
             source_subjects = item.Subject() if callable(getattr(item, "Subject", None)) else ()
             if source_subjects and hasattr(existing, "setSubject"):
@@ -1170,19 +1329,51 @@ def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[
     try:
         portal = api.portal.get()
         portal_url = portal.absolute_url()
+        portal_id = portal.getId()  # e.g. "Plone"
         lookup = path
-        if lookup.startswith("http") and lookup.startswith(portal_url):
-            lookup = lookup[len(portal_url):]
+        # Strip known URL prefixes (backend, frontend, production) to get the path
+        if lookup.startswith("http"):
+            if lookup.startswith(portal_url):
+                lookup = lookup[len(portal_url):]
+            else:
+                # Strip any http(s)://host(:port) prefix (e.g. frontend URL)
+                from urllib.parse import urlparse
+                parsed = urlparse(lookup)
+                lookup = parsed.path or ""
+        # Strip common API/proxy prefixes and portal id from path
+        for prefix in (f"/{portal_id}/", "/api/", "/++api++/"):
+            if lookup.startswith(prefix):
+                lookup = lookup[len(prefix) - 1:]  # keep leading /
+                break
         uid = None
         if "resolveuid/" in lookup:
             uid = lookup.split("resolveuid/")[-1].split("/")[0].strip()
+        elif re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", lookup.strip()):
+            # Bare UUID without resolveuid/ prefix
+            uid = lookup.strip()
         obj = None
+        logger.info("[KYRA AI LINK] resolving: original=%s lookup=%s uid=%s portal_url=%s", path, lookup, uid, portal_url)
         if uid:
             obj = api.content.get(UID=uid)
         elif lookup.startswith("/"):
-            obj = api.content.get(path=lookup.lstrip("/"))
+            clean = lookup.lstrip("/")
+            # Try unrestricted traversal first (api.content.get uses restrictedTraverse)
+            try:
+                obj = portal.unrestrictedTraverse(clean, None)
+            except Exception:
+                obj = None
+            # Fallback: catalog search by path
+            if obj is None:
+                try:
+                    catalog = api.portal.get_tool("portal_catalog")
+                    physical = f"/{portal_id}{lookup}"
+                    brains = catalog.unrestrictedSearchResults(path={"query": physical, "depth": 0})
+                    if brains:
+                        obj = brains[0].getObject()
+                except Exception:
+                    pass
         if obj is None:
-            logger.info("[KYRA AI LINK] could not resolve object for path=%s uid=%s", path, uid)
+            logger.warning("[KYRA AI LINK] could not resolve object for path=%s lookup=%s uid=%s", path, lookup, uid)
             return None
         from plone.app.multilingual.interfaces import ITranslationManager
         manager = ITranslationManager(obj)
@@ -1197,6 +1388,15 @@ def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[
             if trans_uid:
                 logger.info("[KYRA AI LINK] resolved %s -> resolveuid/%s", path, trans_uid)
                 return f"../resolveuid/{trans_uid}"
+        # If the original was a full URL (not a path), return a full URL
+        # with the same scheme/host prefix so the field format is preserved.
+        if path.startswith("http") and not path.startswith(portal_url):
+            from urllib.parse import urlparse
+            original_parsed = urlparse(path)
+            prefix = f"{original_parsed.scheme}://{original_parsed.netloc}"
+            result = prefix + trans_path
+            logger.info("[KYRA AI LINK] resolved %s -> %s", path, result)
+            return result
         logger.info("[KYRA AI LINK] resolved %s -> %s", path, trans_path)
         return trans_path
     except Exception as exc:
@@ -1235,47 +1435,38 @@ def _translate_slate_link(node: Dict[str, Any], target_lang: str):
                 node["url"] = translated_path
 
 
+def _strip_images_suffix(path: str) -> Tuple[str, str]:
+    """Split a path into (content_path, @@images/... suffix)."""
+    if "/@@images/" in path:
+        parts = path.split("/@@images/", 1)
+        return parts[0], "/@@images/" + parts[1]
+    if path.endswith("/@@images"):
+        return path[: -len("/@@images")], "/@@images"
+    return path, ""
+
+
 def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
     """Rewrite image/URL references in blocks to point to translated content."""
+    # Rewrite url if present
     url = block.get("url")
-    if not isinstance(url, str) or not url.strip():
-        return
-    # Strip @@images/... suffix to get the content path
-    content_path = url
-    images_suffix = ""
-    if "/@@images/" in content_path:
-        parts = content_path.split("/@@images/", 1)
-        content_path = parts[0]
-        images_suffix = "/@@images/" + parts[1]
-    elif content_path.endswith("/@@images"):
-        content_path = content_path[: -len("/@@images")]
-        images_suffix = "/@@images"
-    translated_path = _resolve_internal_link_translation(content_path, target_lang)
-    if translated_path:
-        new_url = translated_path + images_suffix
-        block["url"] = new_url
-        logger.info("[KYRA AI IMAGE] rewrote block url: %s -> %s", url, new_url)
-    # Also rewrite @id if present (some blocks store it)
+    if isinstance(url, str) and url.strip():
+        content_path, images_suffix = _strip_images_suffix(url)
+        translated_path = _resolve_internal_link_translation(content_path, target_lang)
+        if translated_path:
+            new_url = translated_path + images_suffix
+            block["url"] = new_url
+            logger.info("[KYRA AI IMAGE] rewrote block url: %s -> %s", url, new_url)
+    # Rewrite @id if present
     at_id = block.get("@id")
     if isinstance(at_id, str) and at_id.strip():
-        id_path = at_id
-        id_suffix = ""
-        if "/@@images/" in id_path:
-            parts = id_path.split("/@@images/", 1)
-            id_path = parts[0]
-            id_suffix = "/@@images/" + parts[1]
+        id_path, id_suffix = _strip_images_suffix(at_id)
         translated_id = _resolve_internal_link_translation(id_path, target_lang)
         if translated_id:
             block["@id"] = translated_id + id_suffix
     # Rewrite href if present
     href = block.get("href")
     if isinstance(href, str) and href.strip():
-        href_path = href
-        href_suffix = ""
-        if "/@@images/" in href_path:
-            parts = href_path.split("/@@images/", 1)
-            href_path = parts[0]
-            href_suffix = "/@@images/" + parts[1]
+        href_path, href_suffix = _strip_images_suffix(href)
         translated_href = _resolve_internal_link_translation(href_path, target_lang)
         if translated_href:
             block["href"] = translated_href + href_suffix

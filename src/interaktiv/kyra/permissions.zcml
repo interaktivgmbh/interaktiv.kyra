@@ -10,4 +10,29 @@
       title="AIAssistant: Apply Actions"
   />
 
+  <permission
+      id="interaktiv.kyra.chat"
+      title="AIAssistant: Use Chat"
+  />
+
+  <permission
+      id="interaktiv.kyra.manage.glossary"
+      title="AIAssistant: Manage Glossary"
+  />
+
+  <permission
+      id="interaktiv.kyra.manage.tagmappings"
+      title="AIAssistant: Manage Tag Mappings"
+  />
+
+  <permission
+      id="interaktiv.kyra.manage.prompts"
+      title="AIAssistant: Manage Prompts"
+  />
+
+  <permission
+      id="interaktiv.kyra.assistant.run"
+      title="AIAssistant: Run Assistant"
+  />
+
 </configure>

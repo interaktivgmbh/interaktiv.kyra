@@ -27,6 +27,13 @@ def _resolve_context(context, request):
     return None
 
 
+def _check_permission(permission_title, context) -> bool:
+    """Check a single permission against the current user."""
+    if context is None:
+        return False
+    return bool(api.user.has_permission(permission_title, obj=context))
+
+
 def _capabilities_for(context) -> dict:
     is_anonymous = api.user.is_anonymous()
     can_edit = False
@@ -38,10 +45,42 @@ def _capabilities_for(context) -> dict:
     if can_edit:
         features.extend(["actions_plan", "actions_apply"])
 
+    # Fine-grained per-feature permissions (checked against Plone's
+    # native permission→role assignments, configurable via the
+    # @ai-permission-matrix endpoint)
+    if is_anonymous:
+        permissions = {
+            "chat": False,
+            "translate": False,
+            "manage_glossary": False,
+            "manage_tag_mappings": False,
+            "manage_prompts": False,
+            "manage_settings": False,
+            "assistant_run": False,
+        }
+    else:
+        permissions = {
+            "chat": _check_permission("AIAssistant: Use Chat", context),
+            "translate": _check_permission("AIAssistant: Apply Actions", context),
+            "manage_glossary": _check_permission("AIAssistant: Manage Glossary", context),
+            "manage_tag_mappings": _check_permission("AIAssistant: Manage Tag Mappings", context),
+            "manage_prompts": _check_permission("AIAssistant: Manage Prompts", context),
+            "manage_settings": _check_permission("AIAssistant: Manage Settings", context),
+            "assistant_run": _check_permission("AIAssistant: Run Assistant", context),
+        }
+
+    is_admin = (
+        not is_anonymous
+        and context is not None
+        and bool(api.user.has_permission("Manage portal", obj=context))
+    )
+
     return {
         "is_anonymous": is_anonymous,
         "can_edit": can_edit,
+        "is_admin": is_admin,
         "features": features,
+        "permissions": permissions,
     }
 
 
@@ -58,4 +97,6 @@ class AICapabilities(Service):
 
     def reply(self):
         context = _resolve_context(self.context, self.request)
+        if context is None:
+            context = api.portal.get()
         return _capabilities_for(context)

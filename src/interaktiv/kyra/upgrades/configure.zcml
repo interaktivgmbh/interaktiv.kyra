@@ -37,4 +37,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1030_to_v1040.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1040"
+            destination="1050"
+            title="Add fine-grained feature permissions"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1040_to_v1050.upgrade"
+    />
 </configure>

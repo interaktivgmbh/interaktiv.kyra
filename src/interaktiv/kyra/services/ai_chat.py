@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from interaktiv.kyra.services.base import ServiceBase
 from interaktiv.kyra import logger
+from interaktiv.kyra.services.ai_capabilities import _capabilities_for
 from interaktiv.kyra.services.ai_context import build_context_documents, clean_text
 from interaktiv.kyra.services.ai_chat_upload import _get_uploads_store
 from plone import api
@@ -106,23 +107,6 @@ def _resolve_context_from_payload(data: Dict[str, Any]):
             return api.content.get(path=url.lstrip("/"))
 
     return None
-
-
-def _capabilities_for(context) -> Dict[str, Any]:
-    is_anonymous = api.user.is_anonymous()
-    can_edit = False
-    if not is_anonymous and context is not None:
-        can_edit = api.user.has_permission("Modify portal content", obj=context)
-
-    features = ["chat"]
-    if can_edit:
-        features.extend(["actions_plan", "actions_apply"])
-
-    return {
-        "is_anonymous": is_anonymous,
-        "can_edit": can_edit,
-        "features": features,
-    }
 
 
 CHAT_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_chat_prompt_id"
