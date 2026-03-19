@@ -46,4 +46,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1040_to_v1050.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1050"
+            destination="1060"
+            title="Add edit backend URL registry field"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1050_to_v1060.upgrade"
+    />
 </configure>

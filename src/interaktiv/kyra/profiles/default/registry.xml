@@ -8,6 +8,8 @@
       <value key="keycloak_token_expiration_time">0</value>
       <value key="domain_id">plone</value>
       <value key="deepl_api_key"></value>
+      <value key="edit_backend_url"></value>
+      <value key="edit_backend_api_key"></value>
     </records>
     <records interface="interaktiv.kyra.registry.ai_assistant_cache.IAIAssistantCacheSchema"/>
 </registry>

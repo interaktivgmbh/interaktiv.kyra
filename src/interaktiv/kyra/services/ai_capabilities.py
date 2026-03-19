@@ -75,13 +75,26 @@ def _capabilities_for(context) -> dict:
         and bool(api.user.has_permission("Manage portal", obj=context))
     )
 
-    return {
+    result = {
         "is_anonymous": is_anonymous,
         "can_edit": can_edit,
         "is_admin": is_admin,
         "features": features,
         "permissions": permissions,
     }
+
+    if can_edit:
+        try:
+            edit_url = api.portal.get_registry_record(
+                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.edit_backend_url",
+                default="",
+            )
+            if edit_url:
+                result["edit_backend_url"] = "proxy"
+        except Exception:
+            pass
+
+    return result
 
 
 class AICapabilities(Service):
