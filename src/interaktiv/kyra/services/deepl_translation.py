@@ -20,7 +20,7 @@ except ImportError:
 
 GLOSSARY_ENTRIES_KEY = "interaktiv.kyra.glossary_entries"
 GLOSSARY_IDS_KEY = "interaktiv.kyra.glossary_ids"
-GLOSSARY_NAME = "FZJ Kyra Translation Glossary"
+GLOSSARY_NAME = "Kyra Translation Glossary"
 
 
 # ---------------------------------------------------------------------------

@@ -431,16 +431,6 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             "footer_header",
             "footer_text",
             "short_header_text",
-            # Award
-            "location",
-            # Project — translatable text fields
-            "project_coordinator",
-            "funding_program",
-            "link_further_information_text",
-            *(f"external_funding_provider_{i}" for i in range(1, 4)),
-            *(f"external_funding_provider_{i}_text" for i in range(1, 4)),
-            *(f"project_partner_{i}" for i in range(1, 11)),
-            *(f"project_partner_{i}_text" for i in range(1, 11)),
         )
 
         try:
@@ -940,8 +930,8 @@ def _get_glossary_map(source_lang: str, target_lang: str) -> Dict[str, str]:
 def _apply_glossary_substitution(text: str, glossary: Dict[str, str]) -> str:
     """Replace glossary source terms in *text* with their target terms.
 
-    Replaces longest terms first so that e.g. "Forschungszentrum Jülich"
-    is matched before "Forschungszentrum".  Case-insensitive matching.
+    Replaces longest terms first so that e.g. "Renewable Energies"
+    is matched before "Renewable".  Case-insensitive matching.
     """
     if not glossary or not text:
         return text
@@ -1076,37 +1066,19 @@ BLOCK_TEXT_FIELDS = {
     "tabBlock": ["headline"],
     "sliderNew": [],
     "quote": ["author", "additional_information"],
-    "parallaxBlock": ["text", "alt"],
-    "highlightTeaser": ["title", "description", "linkTitle"],
-    "highlightTeaserParallax": ["title", "description", "linkTitle"],
-    "highlightTeaserWithoutButton": ["title", "description", "alt"],
     "carousel": ["headline"],
-    "teaserTransparent": ["title", "description", "head_title"],
-    "teaserTransparentGrid": [],
     "form": ["title", "description", "cancel_label", "send_message", "default_subject"],
-    "teaserWithLink": ["title", "description", "button"],
     "introduction": ["heading"],
-    "aktuelles": ["headline", "title", "head_title", "description", "ttitle", "thead_title", "tdescription"],
-    "institutslider": ["title"],
-    "members": ["title"],
-    "memberList": ["headline"],
     "icon": ["heading"],
-    "socialMedia": ["headline", "description", "ydescription"],
-    "azlist": ["title", "description"],
     "image": ["alt", "description", "rights"],
     "__button": ["title", "text"],
     "__grid": ["title", "headline", "description", "text"],
-    "jofilter": ["title"],
-    "teaserTab": ["headline"],
     "buttonBlock": ["title", "text"],
 }
 
 BLOCK_NESTED_ARRAYS = {
     "tabBlock": [("columns", ["title"])],
     "sliderNew": [("slides", ["head_title", "title", "description"])],
-    "institutslider": [("slides", ["title", "description"])],
-    "teaserWithLink": [("links", ["title"])],
-    "teaserTab": [("columns", ["title", "description"])],
     "carousel": [("columns", ["title", "description"])],
 }
 

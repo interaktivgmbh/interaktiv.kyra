@@ -19,11 +19,11 @@ class TestGlossarySubstitution(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_single_substitution(self):
-        glossary = {"Forschungszentrum": "Research Center"}
+        glossary = {"Nachhaltigkeit": "Sustainability"}
         result = _apply_glossary_substitution(
-            "Das Forschungszentrum ist groß.", glossary
+            "Die Nachhaltigkeit ist wichtig.", glossary
         )
-        self.assertEqual(result, "Das Research Center ist groß.")
+        self.assertEqual(result, "Die Sustainability ist wichtig.")
 
     def test_multiple_substitutions(self):
         glossary = {
@@ -42,13 +42,13 @@ class TestGlossarySubstitution(unittest.TestCase):
 
     def test_longest_match_first(self):
         glossary = {
-            "Forschungszentrum Jülich": "Jülich Research Centre",
-            "Forschungszentrum": "Research Center",
+            "Erneuerbare Energien": "Renewable Energies",
+            "Erneuerbare": "Renewable",
         }
         result = _apply_glossary_substitution(
-            "Das Forschungszentrum Jülich forscht.", glossary
+            "Die Erneuerbare Energien sind wichtig.", glossary
         )
-        self.assertEqual(result, "Das Jülich Research Centre forscht.")
+        self.assertEqual(result, "Die Renewable Energies sind wichtig.")
 
     def test_no_match(self):
         glossary = {"Forschung": "Research"}
@@ -57,10 +57,10 @@ class TestGlossarySubstitution(unittest.TestCase):
         self.assertEqual(result, text)
 
     def test_multiple_occurrences(self):
-        glossary = {"FZJ": "Forschungszentrum Jülich"}
-        result = _apply_glossary_substitution("FZJ ist FZJ.", glossary)
+        glossary = {"Plone": "Plone CMS"}
+        result = _apply_glossary_substitution("Plone ist Plone.", glossary)
         self.assertEqual(
-            result, "Forschungszentrum Jülich ist Forschungszentrum Jülich."
+            result, "Plone CMS ist Plone CMS."
         )
 
     def test_special_regex_characters(self):
