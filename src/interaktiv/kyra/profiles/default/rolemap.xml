@@ -11,5 +11,34 @@
       <role name="Manager"/>
       <role name="Site Administrator"/>
     </permission>
+    <permission name="AIAssistant: Use Chat" acquire="False">
+      <role name="Authenticated"/>
+      <role name="Contributor"/>
+      <role name="Editor"/>
+      <role name="Reviewer"/>
+      <role name="Owner"/>
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+    <permission name="AIAssistant: Manage Glossary" acquire="False">
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+    <permission name="AIAssistant: Manage Tag Mappings" acquire="False">
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+    <permission name="AIAssistant: Manage Prompts" acquire="False">
+      <role name="Editor"/>
+      <role name="Owner"/>
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
+    <permission name="AIAssistant: Run Assistant" acquire="False">
+      <role name="Editor"/>
+      <role name="Owner"/>
+      <role name="Manager"/>
+      <role name="Site Administrator"/>
+    </permission>
   </permissions>
 </rolemap>

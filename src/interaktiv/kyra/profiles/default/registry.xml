@@ -1,5 +1,7 @@
 <?xml version="1.0"?>
 <registry>
+    <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"
+             remove="true" />
     <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema">
       <value key="gateway_url">http://localhost</value>
       <value key="keycloak_realms_url">http://localhost</value>
