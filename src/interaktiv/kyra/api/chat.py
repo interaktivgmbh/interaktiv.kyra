@@ -14,8 +14,10 @@ class Chat(APIBase):
         if gateway_url.endswith("/chat"):
             return gateway_url
 
+        # If gateway_url is a prompts endpoint, there is no /chat route.
+        # Return empty so callers skip the chat call and use prompt fallback.
         if gateway_url.endswith("/prompts"):
-            gateway_url = gateway_url[: -len("/prompts")]
+            return ""
 
         return f"{gateway_url}/chat"
 

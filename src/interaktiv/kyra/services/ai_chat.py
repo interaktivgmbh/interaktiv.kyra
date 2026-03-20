@@ -114,11 +114,17 @@ CHAT_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_chat_prompt_id"
 
 def _build_chat_prompt_payload() -> Dict[str, Any]:
     return {
-        "name": "Kyra Chat",
+        "name": "Kyra Chat v2",
         "prompt": (
-            "You are Kyra AI, a helpful assistant for this Plone site. "
-            "Answer the user's request clearly and concisely.\n\n"
-            "User request:\n{{input}}"
+            "You are Kyra AI, a helpful and friendly assistant for this website.\n\n"
+            "Rules:\n"
+            "- For greetings and smalltalk, respond naturally and warmly.\n"
+            "- For questions about the page, use ONLY the provided content to answer — "
+            "write a coherent answer in your own words, do NOT copy-paste raw content.\n"
+            "- For general knowledge questions, answer from your own knowledge.\n"
+            "- Always match the language of the user (German → German, English → English).\n"
+            "- Never output raw HTML, metadata, navigation elements, or technical markup.\n\n"
+            "{{input}}"
         ),
         "categories": ["Chat"],
         "actionType": "replace",
@@ -184,14 +190,19 @@ def _apply_prompt_fallback(
     selection_text = context.get("selection_text") or ""
     page_content = context.get("page_content") or ""
 
-    # When selection text is present, create a dedicated temp prompt so the
-    # gateway processes the actual text (not the generic chat prompt which
-    # uses actionType=replace and adds HTML boilerplate).
-    source_text = selection_text or page_content
-    if source_text:
+    # Selection text: use dedicated temp prompt for text operations
+    if selection_text:
         return _apply_selection_prompt_fallback(
-            kyra, last_user, source_text, params
+            kyra, last_user, selection_text, params
         )
+
+    # For page-related questions, create a temp prompt with page content baked
+    # into the template (not the input) — the gateway ignores long input values
+    # but respects the prompt template content.
+    if page_content and (
+        _detect_summary_intent(last_user) or _detect_content_intent(last_user)
+    ):
+        return _apply_page_context_prompt(kyra, last_user, page_content, params)
 
     apply_payload: Dict[str, Any] = {"query": last_user, "input": last_user}
     if isinstance(params, dict) and params.get("language"):
@@ -212,6 +223,53 @@ def _apply_prompt_fallback(
             if prompt_id:
                 response = kyra.prompts.apply(prompt_id, apply_payload)
     return response
+
+
+def _apply_page_context_prompt(
+    kyra,
+    user_query: str,
+    page_content: str,
+    params: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Create a temp prompt with page content in the template for page-related questions."""
+    truncated_content = page_content[:3500]
+    prompt_payload = {
+        "name": "Kyra Page Context",
+        "prompt": (
+            "You are Kyra AI, a helpful assistant for this website. "
+            "Answer the user's question based on the page content below. "
+            "Write a natural, well-structured answer in your own words. "
+            "Do NOT copy-paste the raw content. "
+            "Match the language of the user's question.\n\n"
+            f"Page content:\n{truncated_content}\n\n"
+            "User question: {{input}}"
+        ),
+        "categories": ["Chat"],
+        "actionType": "replace",
+    }
+    temp_id = None
+    try:
+        created = kyra.prompts.create(prompt_payload)
+        if isinstance(created, dict) and created.get("error"):
+            logger.warning("[KYRA PAGE CONTEXT PROMPT] create failed: %s", created.get("error"))
+            return created
+        temp_id = created.get("id") or created.get("_id")
+        if not temp_id:
+            return {"error": "Unable to create page context prompt"}
+
+        apply_payload: Dict[str, Any] = {"query": user_query, "input": user_query}
+        if isinstance(params, dict) and params.get("language"):
+            apply_payload["language"] = params.get("language")
+
+        response = kyra.prompts.apply(temp_id, apply_payload)
+        logger.info("[KYRA PAGE CONTEXT PROMPT] applied temp=%s", temp_id)
+        return response
+    finally:
+        if temp_id:
+            try:
+                kyra.prompts.delete(temp_id)
+            except Exception:
+                pass
 
 
 def _apply_selection_prompt_fallback(
@@ -291,10 +349,11 @@ def _build_system_message(context_docs: Dict[str, Any]) -> str:
         "",
         "## Content rules",
         f"- Current mode: {mode}",
-        "- Answer based ONLY on the provided context documents and any uploaded files.",
-        "- When you use information from a context document, always mention its exact page title in your response so the reader knows where the information comes from.",
-        "- If the answer cannot be found in the provided documents, clearly state that and suggest what the user could search for.",
-        "- Do not invent or hallucinate information not present in the context.",
+        "- You have access to context documents about the current page. Use them when the user asks about the page, its content, or related topics.",
+        "- For general questions, greetings, or smalltalk, respond naturally from your own knowledge — do NOT repeat page content.",
+        "- When you use information from a context document, mention its page title so the reader knows where it comes from.",
+        "- If the user asks about the page and the answer cannot be found in the provided documents, clearly state that.",
+        "- Do not invent facts about the page that are not present in the context.",
         "",
         "## Context Documents",
     ]
@@ -439,6 +498,53 @@ def _missing_page_content_message() -> str:
     )
 
 
+def _build_smart_summary(title: str, raw_text: str) -> str:
+    """Build a structured summary from raw page text."""
+    if not raw_text or not raw_text.strip():
+        return f"Die Seite **{title}** enthält aktuell keine Textinhalte."
+
+    # Clean and split into meaningful paragraphs
+    text = raw_text.strip()
+    # Split on double newlines, single newlines with enough content, or sentence boundaries
+    paragraphs = re.split(r"\n\s*\n|\n(?=[A-ZÄÖÜ])", text)
+    paragraphs = [p.strip() for p in paragraphs if p.strip()]
+    # Filter out very short fragments, image tags, metadata
+    paragraphs = [
+        p for p in paragraphs
+        if len(p) > 20
+        and not p.startswith("[Image")
+        and not p.startswith("Title:")
+        and not p.startswith("Type:")
+        and p != "---"
+    ]
+
+    if not paragraphs:
+        return f"Die Seite **{title}** enthält aktuell keine Textinhalte."
+
+    parts = [f"**{title}**\n"]
+
+    if len(paragraphs) <= 3:
+        for p in paragraphs:
+            parts.append(p)
+    else:
+        # First paragraph as intro
+        parts.append(paragraphs[0])
+        parts.append("")
+        parts.append("**Weitere Themen auf dieser Seite:**")
+        for p in paragraphs[1:8]:
+            # Take first sentence as summary
+            sentence = re.split(r"(?<=[.!?])\s", p, maxsplit=1)[0]
+            if len(sentence) > 150:
+                sentence = sentence[:147] + "..."
+            parts.append(f"- {sentence}")
+
+        remaining = len(paragraphs) - 8
+        if remaining > 0:
+            parts.append(f"\n*...und {remaining} weitere Abschnitte.*")
+
+    return "\n".join(parts)
+
+
 def _format_page_text(text: str, max_chars: int = 1500) -> str:
     """Format extracted page text for display as a fallback summary."""
     if not text or not text.strip():
@@ -509,7 +615,11 @@ def _build_fallback_message(context_docs: Dict[str, Any], last_query: str) -> st
         return "\n".join(lines)
 
     if mode == "summarize":
-        return f"**{title}**\n\n{formatted_text}"
+        raw_text = page_doc.get("text") or ""
+        logger.info("[KYRA SUMMARY] title=%s raw_text_len=%s raw_preview=%s", title, len(raw_text), raw_text[:100] if raw_text else "EMPTY")
+        result = _build_smart_summary(title, raw_text)
+        logger.info("[KYRA SUMMARY] result_len=%s result_preview=%s", len(result), result[:200])
+        return result
     if mode in ("related", "search"):
         label = query or title
         verb = "related content" if mode == "related" else "search results"
@@ -699,6 +809,19 @@ SMALLTALK_KEYWORDS = (
     "moin",
     "grüß",
     "gruss",
+    "was kannst du",
+    "what can you do",
+    "wer bist du",
+    "who are you",
+    "hilfe",
+    "help",
+    "guten tag",
+    "guten morgen",
+    "guten abend",
+    "good morning",
+    "good evening",
+    "danke",
+    "thank",
 )
 
 OFFSITE_KEYWORDS = (
@@ -725,25 +848,10 @@ def _detect_summary_intent(text: str) -> bool:
 
 
 def _detect_smalltalk_intent(text: str) -> bool:
-    lowered = (text or "").lower().strip()
+    lowered = (text or "").lower().strip().rstrip("?!.,")
     if not lowered:
         return False
-    if "?" in lowered:
-        return False
-    offsite_words = (
-        "wetter",
-        "weather",
-        "who",
-        "what",
-        "where",
-        "when",
-        "why",
-        "wie ist",
-        "was ist",
-    )
-    if any(word in lowered for word in offsite_words):
-        return False
-    if len(lowered) > 40:
+    if len(lowered) > 80:
         return False
     return any(keyword in lowered for keyword in SMALLTALK_KEYWORDS)
 
@@ -769,6 +877,20 @@ CONTENT_KEYWORDS = (
     "who said",
     "welches zitat",
     "welches quote",
+    "seitentitel",
+    "page title",
+    "titel der seite",
+    "titel der webseite",
+    "title of the page",
+    "title of this page",
+    "was steht",
+    "what does the page",
+    "worum geht",
+    "what is this page about",
+    "der titel",
+    "the title",
+    "welcher titel",
+    "which title",
 )
 
 UPLOAD_KEYWORDS = (
@@ -1195,9 +1317,12 @@ class AIChatService(ServiceBase):
         needs_grounding = _needs_grounded_response(last_query, mode, context_docs)
         smalltalk = _detect_smalltalk_intent(last_query)
 
-        # Skip grounding check when user has selected text — the AI response
-        # (e.g. a translation) may not contain the original page tokens
+        # Skip grounding check for smalltalk, selection, and summary responses
+        if smalltalk:
+            needs_grounding = False
         if selection_text:
+            needs_grounding = False
+        if _detect_summary_intent(last_query) and assistant_text and not _is_unusable_gateway_answer(assistant_text):
             needs_grounding = False
 
         logger.info("[KYRA AI GROUNDING] needs=%s unusable=%s has_selection=%s", needs_grounding, _is_unusable_gateway_answer(assistant_text) if assistant_text else "N/A", bool(selection_text))
@@ -1465,7 +1590,11 @@ class AIChatService(ServiceBase):
                 mode = context_docs.get("mode") or "page"
                 selection_text = context_docs.get("selection_text") or ""
                 needs_grounding = _needs_grounded_response(last_query, mode, context_docs)
+                if _detect_smalltalk_intent(last_query):
+                    needs_grounding = False
                 if selection_text:
+                    needs_grounding = False
+                if _detect_summary_intent(last_query) and assembled and not _is_unusable_gateway_answer(assembled):
                     needs_grounding = False
                 if _is_unusable_gateway_answer(assembled) or (
                     needs_grounding and not _is_grounded_answer(assembled, context_docs)

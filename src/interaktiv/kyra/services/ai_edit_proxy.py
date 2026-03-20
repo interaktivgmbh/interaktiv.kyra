@@ -24,12 +24,6 @@ def _get_edit_backend_url() -> str:
 
 
 def _get_auth_token() -> str:
-    static_key = api.portal.get_registry_record(
-        name="edit_backend_api_key", interface=IAIAssistantSchema
-    ) or ""
-    if static_key:
-        return static_key
-
     try:
         from interaktiv.kyra.api.base import APIBase
 
