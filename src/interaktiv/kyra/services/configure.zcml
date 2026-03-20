@@ -205,4 +205,36 @@
         permission="interaktiv.kyra.actions.apply"
     />
 
+    <plone:service
+        method="GET"
+        name="@ai-chat-history"
+        factory=".ai_chat_history.AIChatHistoryGet"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="PATCH"
+        name="@ai-chat-history"
+        factory=".ai_chat_history.AIChatHistoryPatch"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="PUT"
+        name="@ai-chat-history"
+        factory=".ai_chat_history.AIChatHistoryPut"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="DELETE"
+        name="@ai-chat-history"
+        factory=".ai_chat_history.AIChatHistoryDelete"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
 </configure>
