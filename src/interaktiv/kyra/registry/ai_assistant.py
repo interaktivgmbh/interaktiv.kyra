@@ -46,7 +46,7 @@ class IAIAssistantSchema(Interface):
         required=True,
     )
 
-    deepl_api_key = schema.Password(
+    deepl_api_key = schema.TextLine(
         title=_('DeepL API Key'),
         description=_('Authentication key for DeepL translation API'),
         default='',
