@@ -17,6 +17,7 @@ REQUIRED = [
     'striprtf',
     'pdfminer.six',
     'deepl',
+    'passlib',
 ]
 EXTRAS = {
     'test': ['plone.app.testing']
