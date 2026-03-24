@@ -9,6 +9,8 @@
       <value key="domain_id">plone</value>
       <value key="deepl_api_key"></value>
       <value key="edit_backend_url"></value>
+      <value key="github_token"></value>
+      <value key="github_repo">interaktivgmbh/volto-interaktiv-kyra</value>
     </records>
     <records interface="interaktiv.kyra.registry.ai_assistant_cache.IAIAssistantCacheSchema"/>
 </registry>

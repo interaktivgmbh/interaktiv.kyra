@@ -55,4 +55,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1050_to_v1060.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1060"
+            destination="1070"
+            title="Add GitHub error reporting registry fields"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1060_to_v1070.upgrade"
+    />
 </configure>

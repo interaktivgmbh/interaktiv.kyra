@@ -60,3 +60,17 @@ class IAIAssistantSchema(Interface):
         required=False,
     )
 
+    github_token = schema.Password(
+        title=_('GitHub Token'),
+        description=_('Personal access token for auto-creating issues from errors. Scope: repo.'),
+        default='',
+        required=False,
+    )
+
+    github_repo = schema.TextLine(
+        title=_('GitHub Repository'),
+        description=_('Repository for error issues (e.g. interaktivgmbh/volto-interaktiv-kyra).'),
+        default='interaktivgmbh/volto-interaktiv-kyra',
+        required=False,
+    )
+

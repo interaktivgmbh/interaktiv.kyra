@@ -237,4 +237,12 @@
         permission="interaktiv.kyra.chat"
     />
 
+    <plone:service
+        method="POST"
+        name="@ai-error-report"
+        factory=".ai_error_report.AIErrorReport"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
 </configure>
