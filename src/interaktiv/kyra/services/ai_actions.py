@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from AccessControl import Unauthorized
 from interaktiv.kyra import logger
 from interaktiv.kyra.services.ai_tag_mappings import _get_tag_mappings
-from interaktiv.kyra.services.deepl_translation import deepl_translate_text, get_glossary_entries
+from interaktiv.kyra.services.deepl_translation import deepl_translate_text, deepl_translate_text_batch, get_glossary_entries
 from interaktiv.kyra.api import Chat
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
@@ -537,24 +537,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
 
                         # Merge: start with existing translated blocks, add new ones
                         blocks_copy = copy.deepcopy(dict(existing_blocks))
+                        blocks_to_translate = {}
                         for block_id in new_block_ids:
                             new_block = copy.deepcopy(source_blocks[block_id])
                             blocks_copy[block_id] = new_block
-                            futures.append(
-                                (
-                                    "block",
-                                    executor.submit(
-                                        lambda b: (setSite(portal), _translate_block_dict(
-                                            translator,
-                                            b,
-                                            source_lang,
-                                            target_lang,
-                                        ))[1],
-                                        new_block,
-                                    ),
-                                    None,
-                                )
-                            )
+                            blocks_to_translate[block_id] = new_block
                         # Remove blocks deleted from source
                         for removed_id in (existing_block_ids - source_block_ids):
                             blocks_copy.pop(removed_id, None)
@@ -564,25 +551,13 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                             len(new_block_ids),
                             len(existing_block_ids - source_block_ids),
                         )
+                        # Batch translate new blocks
+                        if blocks_to_translate:
+                            _translate_blocks(translator, blocks_to_translate, source_lang, target_lang)
                     else:
-                        # Full mode: translate all blocks
+                        # Full mode: translate all blocks using batch API
                         blocks_copy = copy.deepcopy(source_blocks)
-                        for block in blocks_copy.values():
-                            futures.append(
-                                (
-                                    "block",
-                                    executor.submit(
-                                        lambda b: (setSite(portal), _translate_block_dict(
-                                            translator,
-                                            b,
-                                            source_lang,
-                                            target_lang,
-                                        ))[1],
-                                        block,
-                                    ),
-                                    None,
-                                )
-                            )
+                        _translate_blocks(translator, blocks_copy, source_lang, target_lang)
 
                 for kind, future, setter in futures:
                     try:
@@ -1292,8 +1267,190 @@ def _translate_block_dict(
 
 
 def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str, target_lang: str):
+    """Translate all blocks using batched DeepL API calls for performance."""
+    # Phase 1: Collect all translatable texts with write-back callbacks
+    texts_to_translate: List[str] = []
+    callbacks: List[Any] = []  # List of (write_back_fn,) tuples
+    glossary = _get_glossary_map(source_lang, target_lang)
+
+    def collect_text(text: str, write_back):
+        """Register a text for batch translation."""
+        if not isinstance(text, str) or not text.strip():
+            return
+        # Apply glossary substitution before batching
+        substituted = _apply_glossary_substitution(text, glossary)
+        texts_to_translate.append(substituted)
+        callbacks.append(write_back)
+
+    def collect_from_slate_node(node):
+        if not isinstance(node, dict):
+            return
+        if "text" in node and isinstance(node["text"], str):
+            original = node["text"]
+            if original.strip():
+                leading = original[: len(original) - len(original.lstrip())]
+                trailing = original[len(original.rstrip()) :]
+                def make_cb(n, l, t):
+                    def cb(translated):
+                        n["text"] = l + translated.strip() + t
+                    return cb
+                collect_text(original.strip(), make_cb(node, leading, trailing))
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                collect_from_slate_node(child)
+
+    def collect_from_block(block):
+        if not isinstance(block, dict):
+            return
+        btype = block.get("@type")
+
+        # Slate/text blocks
+        if btype in ("text",):
+            html = block.get("text") or ""
+            if html.strip():
+                def cb(translated):
+                    block["text"] = translated
+                collect_text(html, cb)
+        elif btype in ("slate",) or btype in BLOCKS_WITH_SLATE_VALUE:
+            value = block.get("value")
+            if isinstance(value, list):
+                for node in value:
+                    collect_from_slate_node(node)
+        elif btype == "html":
+            html = block.get("html") or ""
+            if html.strip():
+                def cb(translated):
+                    block["html"] = translated
+                collect_text(html, cb)
+        elif btype == "slateTable":
+            table = block.get("table")
+            if isinstance(table, dict):
+                rows = table.get("rows")
+                if isinstance(rows, list):
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        cells = row.get("cells")
+                        if not isinstance(cells, list):
+                            continue
+                        for cell in cells:
+                            if isinstance(cell, dict):
+                                cell_value = cell.get("value")
+                                if isinstance(cell_value, list):
+                                    for node in cell_value:
+                                        collect_from_slate_node(node)
+
+        # Slate sub-objects (e.g. introduction.about, introduction.topics)
+        slate_sub_fields = BLOCK_SLATE_SUBOBJECTS.get(btype, [])
+        for field in slate_sub_fields:
+            sub = block.get(field)
+            if isinstance(sub, dict) and sub.get("value") and isinstance(sub["value"], list):
+                for node in sub["value"]:
+                    collect_from_slate_node(node)
+            elif isinstance(sub, list):
+                for item in sub:
+                    if isinstance(item, dict) and item.get("value") and isinstance(item["value"], list):
+                        for node in item["value"]:
+                            collect_from_slate_node(node)
+
+        # Image subfields (alt, title, description)
+        for img_key in ("image", "preview_image", "tpreview_image"):
+            img_obj = block.get(img_key)
+            if isinstance(img_obj, dict):
+                for sf in ("alt", "title", "description", "rights", "caption"):
+                    val = img_obj.get(sf)
+                    if isinstance(val, str) and val.strip() and not _looks_like_url(val):
+                        def make_img_cb(obj, key):
+                            def cb(translated):
+                                obj[key] = translated
+                            return cb
+                        collect_text(val, make_img_cb(img_obj, sf))
+
+        # String fields from BLOCK_TEXT_FIELDS
+        special_fields = BLOCK_TEXT_FIELDS.get(btype, [])
+        for key in special_fields:
+            val = block.get(key)
+            if isinstance(val, str) and val.strip() and not _looks_like_url(val) and not _looks_like_non_text(val):
+                def make_field_cb(b, k):
+                    def cb(translated):
+                        b[k] = translated
+                    return cb
+                collect_text(val, make_field_cb(block, key))
+
+        # Generic string fields not handled above
+        richtext_handled = set(BLOCK_RICHTEXT_HTML_FIELDS.get(btype, []))
+        slate_sub_handled = set(BLOCK_SLATE_SUBOBJECTS.get(btype, []))
+        special_handled = set(special_fields)
+        dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(btype)
+        dynamic_prefix = dynamic_def[0] if dynamic_def else None
+
+        for key, value in list(block.items()):
+            if key in SKIP_TRANSLATION_FIELDS or key in special_handled or key in richtext_handled or key in slate_sub_handled:
+                continue
+            if dynamic_prefix and key.startswith(f"{dynamic_prefix}-"):
+                continue
+            if key in ("image", "preview_image", "tpreview_image"):
+                continue
+            if isinstance(value, str):
+                if value.strip() and not _looks_like_url(value) and not _looks_like_non_text(value):
+                    def make_generic_cb(b, k):
+                        def cb(translated):
+                            b[k] = translated
+                        return cb
+                    collect_text(value, make_generic_cb(block, key))
+            elif isinstance(value, dict):
+                if value.get("@type"):
+                    collect_from_block(value)
+            elif isinstance(value, list):
+                for idx, item in enumerate(value):
+                    if isinstance(item, str) and item.strip() and not _looks_like_url(item) and not _looks_like_non_text(item):
+                        if not (key == "items" and all(isinstance(x, str) and _is_block_id(x) for x in value)):
+                            def make_list_cb(lst, i):
+                                def cb(translated):
+                                    lst[i] = translated
+                                return cb
+                            collect_text(item, make_list_cb(value, idx))
+                    elif isinstance(item, dict):
+                        if item.get("@type"):
+                            collect_from_block(item)
+
+        # Nested containers (columnsBlock, tabs, etc.)
+        if block.get("data", {}).get("blocks"):
+            for sub_block in block["data"]["blocks"].values():
+                collect_from_block(sub_block)
+        if block.get("blocks") and btype not in ("data",):
+            for sub_block in block.get("blocks", {}).values():
+                if isinstance(sub_block, dict):
+                    collect_from_block(sub_block)
+        if block.get("columns"):
+            for col in block["columns"]:
+                if isinstance(col, dict):
+                    for sub_block in col.get("blocks", {}).values():
+                        collect_from_block(sub_block)
+        if block.get("tabs"):
+            for tab in block["tabs"]:
+                if isinstance(tab, dict):
+                    for sub_block in tab.get("blocks", {}).values():
+                        collect_from_block(sub_block)
+
+    # Collect from all blocks
     for block in blocks.values():
-        _translate_block_dict(translator, block, source_lang, target_lang)
+        collect_from_block(block)
+
+    if not texts_to_translate:
+        return
+
+    # Phase 2: Batch translate
+    logger.info("[KYRA AI] Batch translating %d texts (%s->%s)", len(texts_to_translate), source_lang, target_lang)
+    results = deepl_translate_text_batch(texts_to_translate, source_lang, target_lang)
+
+    # Phase 3: Write back results
+    for i, result in enumerate(results):
+        if result is not None and result != texts_to_translate[i]:
+            callbacks[i](result)
+
+    logger.info("[KYRA AI] Batch translation complete: %d texts", len(texts_to_translate))
 
 
 def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[str]:

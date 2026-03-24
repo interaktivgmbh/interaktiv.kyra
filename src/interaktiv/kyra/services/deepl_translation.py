@@ -251,6 +251,106 @@ def deepl_translate_text(
     return None
 
 
+DEEPL_MAX_BATCH_BYTES = 120 * 1024  # 120KB safe margin under DeepL's 128KB limit
+
+
+def deepl_translate_text_batch(
+    texts: List[str],
+    source_lang: str,
+    target_lang: str,
+    glossary_id: Optional[str] = None,
+) -> List[Optional[str]]:
+    """Translate multiple texts in batched DeepL API calls.
+    Returns a list of translated strings (same order as input).
+    None for texts that failed to translate."""
+    if not texts:
+        return []
+
+    client = _get_deepl_client()
+    if client is None:
+        return [None] * len(texts)
+
+    # Resolve glossary ID once
+    gid = glossary_id
+    if not gid and source_lang:
+        store = _get_glossary_store()
+        pair = _pair_key(source_lang, target_lang)
+        if store.get(pair):
+            gid = _get_glossary_id_for_pair(source_lang, target_lang)
+
+    # Split into sub-batches by byte size
+    batches: List[List[Tuple[int, str]]] = []
+    current_batch: List[Tuple[int, str]] = []
+    current_size = 0
+    for idx, text in enumerate(texts):
+        if not text or not text.strip():
+            continue
+        text_size = len(text.encode("utf-8"))
+        if current_batch and current_size + text_size > DEEPL_MAX_BATCH_BYTES:
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+        current_batch.append((idx, text))
+        current_size += text_size
+    if current_batch:
+        batches.append(current_batch)
+
+    results: List[Optional[str]] = [None] * len(texts)
+    # Preserve empty/whitespace texts as-is
+    for idx, text in enumerate(texts):
+        if not text or not text.strip():
+            results[idx] = text or ""
+
+    for batch in batches:
+        batch_texts = [text for _, text in batch]
+        batch_indices = [idx for idx, _ in batch]
+
+        kwargs: Dict[str, Any] = {
+            "text": batch_texts,
+            "target_lang": _deepl_target_lang(target_lang),
+        }
+        if source_lang:
+            kwargs["source_lang"] = _deepl_source_lang(source_lang)
+        if gid and source_lang:
+            kwargs["glossary"] = gid
+
+        for attempt in range(4):
+            try:
+                result_list = client.translate_text(**kwargs)
+                for i, result in enumerate(result_list):
+                    translated = str(result).strip()
+                    if translated:
+                        results[batch_indices[i]] = translated
+                    else:
+                        results[batch_indices[i]] = batch_texts[i]
+                logger.info(
+                    "[KYRA DEEPL] batch translated %d texts (%s->%s)",
+                    len(batch_texts), source_lang, target_lang,
+                )
+                break
+            except Exception as exc:
+                exc_str = str(exc)
+                if ("Too many requests" in exc_str or "429" in exc_str) and attempt < 3:
+                    delay = 1.5 * (attempt + 1) + random.uniform(0, 0.5)
+                    logger.info(
+                        "[KYRA DEEPL] batch rate limited, retrying in %.1fs (attempt %d/3)",
+                        delay, attempt + 1,
+                    )
+                    time.sleep(delay)
+                    continue
+                if "glossary" in exc_str.lower() and "not found" in exc_str.lower() and "glossary" in kwargs:
+                    logger.warning("[KYRA DEEPL] batch glossary not found, retrying without")
+                    kwargs.pop("glossary", None)
+                    continue
+                logger.warning("[KYRA DEEPL] batch translation failed: %s", exc)
+                # Fall back to originals for this batch
+                for i in range(len(batch_texts)):
+                    results[batch_indices[i]] = batch_texts[i]
+                break
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Local glossary entry storage (portal annotations)
 # ---------------------------------------------------------------------------
