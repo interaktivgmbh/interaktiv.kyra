@@ -198,9 +198,13 @@ def deepl_translate_text(
     }
     if source_lang:
         kwargs["source_lang"] = _deepl_source_lang(source_lang)
-    gid = glossary_id or (
-        _get_glossary_id_for_pair(source_lang, target_lang) if source_lang else ""
-    )
+    # Only look up glossary ID if there are actual glossary entries configured
+    gid = glossary_id
+    if not gid and source_lang:
+        store = _get_glossary_store()
+        pair = _pair_key(source_lang, target_lang)
+        if store.get(pair):
+            gid = _get_glossary_id_for_pair(source_lang, target_lang)
     if gid and source_lang:
         kwargs["glossary"] = gid
 
