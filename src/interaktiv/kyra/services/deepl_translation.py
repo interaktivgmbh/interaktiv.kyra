@@ -47,15 +47,23 @@ def _get_glossary_ids() -> Dict[str, str]:
         return {}
 
 
+_glossary_lookup_cache: Dict[str, str] = {}
+
 def _get_glossary_id_for_pair(source_lang: str, target_lang: str) -> str:
     """Return the DeepL glossary ID for a specific language pair.
-    Falls back to querying DeepL API if locally stored ID is stale."""
+    Falls back to querying DeepL API once if locally stored ID is missing."""
     ids = _get_glossary_ids()
-    local_id = ids.get(_pair_key(source_lang, target_lang), "")
+    pair = _pair_key(source_lang, target_lang)
+    local_id = ids.get(pair, "")
     if local_id:
         return local_id
-    # No local ID — try to find a matching glossary on DeepL
-    return _fetch_glossary_id_from_deepl(source_lang, target_lang)
+    # Check in-memory cache to avoid repeated DeepL lookups
+    if pair in _glossary_lookup_cache:
+        return _glossary_lookup_cache[pair]
+    # Query DeepL once and cache the result
+    fresh_id = _fetch_glossary_id_from_deepl(source_lang, target_lang)
+    _glossary_lookup_cache[pair] = fresh_id
+    return fresh_id
 
 
 def _fetch_glossary_id_from_deepl(source_lang: str, target_lang: str) -> str:
@@ -87,6 +95,7 @@ def _set_glossary_ids(ids: Dict[str, str]) -> None:
         portal = api.portal.get()
         annotations = IAnnotations(portal)
         annotations[GLOSSARY_IDS_KEY] = dict(ids)
+        _glossary_lookup_cache.clear()
     except Exception as exc:
         logger.warning("[KYRA DEEPL] could not save glossary_ids: %s", exc)
 
