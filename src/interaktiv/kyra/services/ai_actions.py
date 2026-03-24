@@ -1058,6 +1058,7 @@ BLOCK_TEXT_FIELDS = {
     "@kitconcept/volto-carousel-block": ["title", "text", "description", "html"],
     "@kitconcept/volto-heading-block": ["title", "text", "html"],
     "@kitconcept/volto-highlight-block": ["title", "text", "description", "html"],
+    "highlight": ["title", "text", "description", "html", "buttonText"],
     "@kitconcept/volto-introduction-block": ["title", "text", "description", "html"],
     "@kitconcept/volto-button-block": ["title", "text"],
     "@kitconcept/volto-light-theme": ["title", "text", "html"],
@@ -1082,7 +1083,7 @@ BLOCK_NESTED_ARRAYS = {
     "carousel": [("columns", ["title", "description"])],
 }
 
-BLOCKS_WITH_SLATE_VALUE = {"quote", "textPillWithStyle", "tabBlock"}
+BLOCKS_WITH_SLATE_VALUE = {"quote", "textPillWithStyle", "tabBlock", "highlight"}
 
 BLOCK_SLATE_SUBOBJECTS = {
     "introduction": ["about", "topics"],

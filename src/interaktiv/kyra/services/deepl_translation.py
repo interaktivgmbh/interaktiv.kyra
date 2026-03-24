@@ -48,9 +48,38 @@ def _get_glossary_ids() -> Dict[str, str]:
 
 
 def _get_glossary_id_for_pair(source_lang: str, target_lang: str) -> str:
-    """Return the DeepL glossary ID for a specific language pair."""
+    """Return the DeepL glossary ID for a specific language pair.
+    Falls back to querying DeepL API if locally stored ID is stale."""
     ids = _get_glossary_ids()
-    return ids.get(_pair_key(source_lang, target_lang), "")
+    local_id = ids.get(_pair_key(source_lang, target_lang), "")
+    if local_id:
+        return local_id
+    # No local ID — try to find a matching glossary on DeepL
+    return _fetch_glossary_id_from_deepl(source_lang, target_lang)
+
+
+def _fetch_glossary_id_from_deepl(source_lang: str, target_lang: str) -> str:
+    """Query DeepL API for existing glossaries and return matching ID."""
+    client = _get_deepl_client()
+    if client is None:
+        return ""
+    try:
+        src = _deepl_source_lang(source_lang).upper()
+        tgt = _deepl_source_lang(target_lang).upper()
+        glossaries = client.list_glossaries()
+        for g in glossaries:
+            g_src = getattr(g, "source_lang", "").upper()
+            g_tgt = getattr(g, "target_lang", "").upper()
+            if g_src == src and g_tgt == tgt:
+                # Found a match — cache it locally
+                ids = _get_glossary_ids()
+                ids[_pair_key(source_lang, target_lang)] = g.glossary_id
+                _set_glossary_ids(ids)
+                logger.info("[KYRA DEEPL] refreshed glossary ID from DeepL: %s (%s->%s)", g.glossary_id, src, tgt)
+                return g.glossary_id
+    except Exception as exc:
+        logger.debug("[KYRA DEEPL] could not fetch glossaries from DeepL: %s", exc)
+    return ""
 
 
 def _set_glossary_ids(ids: Dict[str, str]) -> None:
@@ -186,6 +215,23 @@ def deepl_translate_text(
                     delay, attempt + 1,
                 )
                 time.sleep(delay)
+                continue
+            # If glossary not found, clear stale ID and retry without glossary
+            if "glossary" in exc_str.lower() and "not found" in exc_str.lower() and "glossary" in kwargs:
+                stale_id = kwargs.pop("glossary", "")
+                logger.warning("[KYRA DEEPL] glossary %s not found at DeepL, clearing and retrying without", stale_id)
+                # Clear the stale ID from local cache
+                if source_lang:
+                    ids = _get_glossary_ids()
+                    pair = _pair_key(source_lang, _internal_lang(kwargs.get("target_lang", target_lang)))
+                    if ids.get(pair) == stale_id:
+                        ids.pop(pair, None)
+                        _set_glossary_ids(ids)
+                # Try to find a valid glossary from DeepL
+                fresh_id = _fetch_glossary_id_from_deepl(source_lang, target_lang)
+                if fresh_id and fresh_id != stale_id:
+                    kwargs["glossary"] = fresh_id
+                    logger.info("[KYRA DEEPL] found fresh glossary %s, retrying", fresh_id)
                 continue
             logger.warning("[KYRA DEEPL] translation failed, falling back: %s", exc)
             return None
@@ -354,15 +400,26 @@ def _cleanup_old_glossaries(client) -> None:
         pass  # multilingual API may not be available on free tier
 
 
+def _is_free_plan() -> bool:
+    """Check if the DeepL API key is a Free plan key (ends with ':fx')."""
+    key = _get_deepl_api_key()
+    return key.strip().endswith(":fx")
+
+
 def sync_glossary_to_deepl() -> Optional[str]:
     """
     Sync all local glossary entries to DeepL as bilingual glossaries (v2 API).
-    Creates one glossary per language pair. Returns first glossary_id or None.
+    - Free plan: delete old glossary, create new one (glossaries are immutable)
+    - Pro plan: same approach, but could be optimized in the future
+    Returns first glossary_id or None.
     """
     client = _get_deepl_client()
     if client is None:
         logger.warning("[KYRA DEEPL] cannot sync glossary: no client")
         return None
+
+    is_free = _is_free_plan()
+    logger.info("[KYRA DEEPL] sync glossary (plan: %s)", "free" if is_free else "pro")
 
     # Log usage for diagnostics
     try:
@@ -377,11 +434,16 @@ def sync_glossary_to_deepl() -> Optional[str]:
         logger.warning("[KYRA DEEPL] could not check usage: %s", exc)
 
     store = _get_glossary_store()
-    if not store:
-        logger.info("[KYRA DEEPL] no glossary entries to sync")
+
+    # If no entries, delete all glossaries and clear IDs
+    if not store or all(not entries for entries in store.values()):
+        logger.info("[KYRA DEEPL] no glossary entries — cleaning up remote glossaries")
+        _cleanup_old_glossaries(client)
+        _set_glossary_ids({})
         return None
 
-    # Delete ALL old glossaries first
+    # Delete ALL old glossaries first (required for both Free and Pro,
+    # because DeepL glossaries are immutable — you can't update entries)
     _cleanup_old_glossaries(client)
     _set_glossary_ids({})
 
@@ -421,6 +483,7 @@ def sync_glossary_to_deepl() -> Optional[str]:
                 src_code, tgt_code, exc,
             )
 
+    # Persist the new glossary IDs so translation calls use them immediately
     _set_glossary_ids(new_ids)
     logger.info("[KYRA DEEPL] synced %d glossaries: %s", len(new_ids), new_ids)
     return first_id
