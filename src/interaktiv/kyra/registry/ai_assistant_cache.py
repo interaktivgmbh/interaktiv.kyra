@@ -11,7 +11,7 @@ class IAIAssistantCacheSchema(Interface):
         required=False
     )
 
-    keycloak_token_timestamp = schema.Password(
+    keycloak_token_timestamp = schema.Password(  # this is a timestamp, not a password -- TextLine would fit better
         title=_('trans_label_keycloak_token_timestamp'),
         description=_('trans_help_keycloak_token_timestamp'),
         required=False

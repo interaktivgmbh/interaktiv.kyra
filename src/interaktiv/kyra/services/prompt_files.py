@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from interaktiv.kyra import logger
 from plone import api
 from plone.protect.interfaces import IDisableCSRFProtection
-from plone.restapi.deserializer import json_body
+from plone.restapi.deserializer import json_body # Unused
 from plone.restapi.services import Service
 from zExceptions import BadRequest, NotFound
 from zope.annotation.interfaces import IAnnotations
@@ -16,6 +16,7 @@ from zope.publisher.interfaces import IPublishTraverse
 FILES_STORAGE_KEY = "interaktiv.kyra.prompt_files"
 
 
+# We dont use these separators
 # ---------------------------------------------------------------------------
 # Annotation helpers
 # ---------------------------------------------------------------------------
@@ -60,8 +61,9 @@ def get_file(prompt_id: str, file_id: str) -> Optional[Dict[str, Any]]:
 def add_file(prompt_id: str, filename: str, content_type: str,
              data: bytes) -> Dict[str, Any]:
     file_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.utcnow().isoformat() # utcnow is deprecated
 
+    # -> FileEntry TypedDict {id, prompt_id, filename, content_type, size, data, created}
     file_entry = {
         "id": file_id,
         "prompt_id": prompt_id,
@@ -104,6 +106,7 @@ def delete_files_for_prompt(prompt_id: str) -> None:
         _persist_store(store)
 
 
+# We dont use these separators
 # ---------------------------------------------------------------------------
 # REST API Service — /@ai-prompt-files/{prompt_id}[/{file_id}]
 # ---------------------------------------------------------------------------
@@ -116,7 +119,7 @@ class PromptFilesService(Service):
         alsoProvides(self.request, IDisableCSRFProtection)
         self._path_segments = []
 
-    def publishTraverse(self, request, name):
+    def publishTraverse(self, request, name): # request is unused
         self._path_segments.append(name)
         return self
 
@@ -163,6 +166,7 @@ class PromptFilesService(Service):
         if hasattr(file_field, "read"):
             data = file_field.read()
             filename = getattr(file_field, "filename", "upload")
+            # This nested getattr chain is hard to read
             content_type = getattr(
                 file_field, "content_type",
                 getattr(file_field.headers, "get", lambda *a: "application/octet-stream")("content-type", "application/octet-stream")

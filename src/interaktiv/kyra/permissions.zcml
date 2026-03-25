@@ -10,4 +10,7 @@
       title="AIAssistant: Apply Actions"
   />
 
+  <!-- Consider more granular permissions (e.g. per-endpoint) instead of
+       reusing actions.apply for everything. -->
+
 </configure>

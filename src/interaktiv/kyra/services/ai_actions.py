@@ -1,5 +1,6 @@
+# Split this: orchestrator, block translator, link rewriter.
 import copy
-import json
+import json # Unused
 import os
 import random
 import re
@@ -16,7 +17,7 @@ from interaktiv.kyra.services.deepl_translation import deepl_translate_text, get
 from interaktiv.kyra.api import Chat
 from interaktiv.kyra.services.audit import log_ai_action
 from interaktiv.kyra.services.base import ServiceBase
-from passlib.exc import ExpectedTypeError
+from passlib.exc import ExpectedTypeError  # noqa: F401 -- unused, safe to delete
 from plone.i18n.normalizer import idnormalizer
 from persistent.list import PersistentList
 from persistent.mapping import PersistentMapping
@@ -44,7 +45,7 @@ def _get_int_env(name: str, default: int) -> int:
     try:
         value = int(os.getenv(name, "").strip())
         return value if value > 0 else default
-    except Exception:
+    except Exception:  # Narrow to ValueError/TypeError.
         return default
 
 
@@ -64,6 +65,8 @@ def _translation_retries() -> int:
     return _get_int_env("KYRA_TRANSLATE_RETRIES", TRANSLATION_RETRIES_DEFAULT)
 
 
+# -> List[ActionDict TypedDict {type, payload: TranslatePayload}]
+# TranslatePayload TypedDict {target_language, mode, overwrite, incremental?}
 def _derive_actions(translate_opts: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     target_lang = translate_opts.get("target_language") if translate_opts else None
     mode = translate_opts.get("mode") if translate_opts else None
@@ -86,6 +89,7 @@ def _derive_actions(translate_opts: Optional[Dict[str, Any]] = None) -> List[Dic
     ]
 
 
+# -> PreviewDict TypedDict {summary, diff, human_steps}
 def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
     summaries = []
     diffs = []
@@ -105,6 +109,7 @@ def _preview_from_actions(actions: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+# -> Optional[TranslationStub TypedDict {target_language, mode, overwrite}]
 def _build_translation_stub(actions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     for action in actions:
         if action.get("type") == "translate_content":
@@ -117,6 +122,7 @@ def _build_translation_stub(actions: List[Dict[str, Any]]) -> Optional[Dict[str,
     return None
 
 
+# Duplicated (ai_chat, ai_capabilities) -- extract shared utility.
 def _resolve_target(context, data: Dict[str, Any]):
     if context is not None and not IPloneSiteRoot.providedBy(context):
         return context
@@ -169,6 +175,14 @@ def _apply_actions(obj, actions: List[Dict[str, Any]]) -> List[str]:
     return changed
 
 
+# Split into one function per phase (validate, PAM, translate, blocks, post-process).
+#   - build result report
+#
+# The function also instantiates Chat() directly, making it impossible to
+# unit-test translation without a live gateway.  Accepting a translator
+# parameter (or factory) would allow injection of a test double.
+
+# Not reviewed in depth due to significant refactoring ahead. 500 line functions are not acceptable
 def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
     target_language = payload.get("target_language")
     mode = payload.get("mode", "single")
@@ -185,18 +199,22 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
         "yes" if gateway_available else "no",
     )
 
+    # --- Validate & resolve target language ---
     if not isinstance(target_language, str) or not target_language.strip():
         raise BadRequest("translate_content requires target_language")
 
     portal = api.portal.get()
     source_lang = getattr(obj, "Language", lambda: "")() or api.portal.get_default_language()
-    supported_langs = []
+    supported_langs = [] # Always reset by try/except
     try:
         pl = api.portal.get_tool("portal_languages")
         supported_langs = pl.getSupportedLanguages() or []
-    except Exception:
+    except Exception:  # swallows missing portal_languages tool (e.g. in tests)
         supported_langs = []
     if source_lang and source_lang.strip().lower() == target_language.strip().lower():
+        # -> TranslationReport TypedDict {created, updated, skipped, failed,
+        #    details: List[TranslationDetail], source_language, target_language, mode}
+        # TranslationDetail TypedDict {source, target, status, note, error}
         return {
             "created": 0,
             "updated": 0,
@@ -218,11 +236,13 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
     target_lang = target_language.strip()
     details: List[Dict[str, Any]] = []
 
+    # Move to module level, this should either be a method or function.
     def _rel_path(o):
         url = getattr(o, "absolute_url", lambda: "")()
         portal_url = portal.absolute_url()
         return url[len(portal_url) :] if url.startswith(portal_url) else url
 
+    # Move to module level, this should either be a method or function.
     def _ensure_lang_root(lang: str):
         root = getattr(portal, lang, None)
         if root:
@@ -230,10 +250,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
             root = api.content.create(container=portal, type="LRF", id=lang, title=lang)
             return root
-        except Exception:
+        except Exception:  # swallows LRF creation failure (permissions, duplicate id, etc.)
             return None
 
-    def _ensure_container(target_root, path_segments):
+    # Move to module level, this should either be a method or function.
+    def _ensure_container(target_root, path_segments): # Shadows target_root, no return value
         container = target_root
         for seg in path_segments:
             existing = getattr(container, seg, None)
@@ -245,7 +266,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
         return container
 
     targets = [obj]
-    if mode == "subtree" and hasattr(obj, "objectValues"):
+    if mode == "subtree" and hasattr(obj, "objectValues"): # Check if a generator with yield could be used here
         targets = []
         stack = [obj]
         while stack:
@@ -280,6 +301,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             "mode": mode,
         }
 
+    # --- Create or find translation objects (PAM) ---
     for item in targets:
         rel = _rel_path(item)
         rel_parts = [p for p in rel.split("/") if p]
@@ -292,12 +314,13 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
         existing = None
         status = "updated"
 
-        manager = None
+        manager = None # Always reset by try/except
         try:
+            # Move to top-level try/except import
             from plone.app.multilingual.interfaces import ITranslationManager  # type: ignore
 
             manager = ITranslationManager(item)
-        except Exception:
+        except Exception:  # swallows import error
             manager = None
 
         if manager is not None:
@@ -317,7 +340,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     continue
                 if existing is None:
                     manager.add_translation(target_lang)
-                    existing = manager.get_translation(target_lang)
+                    existing = manager.get_translation(target_lang) # Unexpected arg
                     if existing:
                         status = "created"
                         created += 1
@@ -330,7 +353,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     status = "updated"
                     updated += 1
-            except Exception:
+            except Exception:  # swallows get_translations/add_translation errors
                 existing = None
 
         if existing is None:
@@ -376,7 +399,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                     existing = api.content.copy(source=item, target=container, id=target_id)
                     created += 1
                     status = "created"
-                except Exception:
+                except Exception:  # swallows copy failure (e.g. duplicate id, permission); falls back to create
                     try:
                         existing = api.content.create(
                             container=container,
@@ -422,6 +445,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                 status,
             )
 
+        # Move to module level -- re-created every iteration.
         _META_TEXT_FIELDS = (
             "preview_caption",
             "image_caption",
@@ -432,6 +456,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             "short_header_text",
         )
 
+        # --- Translate fields concurrently ---
         try:
             blocks_copy = None
             source_title = getattr(item, "Title", lambda: "")()
@@ -441,7 +466,9 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             translated_title_value: Optional[str] = None
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 portal = api.portal.get()
+                # Extract _translate_in_thread() -- setSite-via-tuple-indexing is cryptic.
                 if hasattr(existing, "setTitle"):
+                    # Hard to read
                     futures.append(
                         (
                             "title",
@@ -460,6 +487,7 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         )
                     )
                 if hasattr(existing, "setDescription"):
+                    # Hard to read
                     futures.append(
                         (
                             "description",
@@ -540,6 +568,9 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                         )
                     else:
                         # Full mode: translate all blocks
+                        # Thread safety note: each worker mutates its own block dict
+                        # in-place. This works because no two workers share a block,
+                        # but would become a data race if that changes.
                         blocks_copy = copy.deepcopy(source_blocks)
                         for block in blocks_copy.values():
                             futures.append(
@@ -828,6 +859,7 @@ def _translate_text(
     return text
 
 
+# Consolidate separate config dicts into per-block-type dataclass.
 SKIP_TRANSLATION_FIELDS = {
     "@type",
     "@id",
@@ -977,19 +1009,21 @@ NON_TEXT_PATTERN = re.compile(
 )
 
 
+# Move to shared utils module as public. Rename to is_url (not "looks like").
 def _looks_like_url(text: str) -> bool:
     if not isinstance(text, str):
         return False
     return bool(URL_PATTERN.match(text.strip()))
 
 
+# Move to shared utils module as public. Rename to is_non_translatable (not "looks like").
 def _looks_like_non_text(text: str) -> bool:
     """Return True for values that are clearly not translatable text (colors, CSS values, booleans)."""
     if not isinstance(text, str):
         return False
     return bool(NON_TEXT_PATTERN.match(text.strip()))
 
-
+# Insoncistent function name. See above
 def _is_block_id(value: str) -> bool:
     return bool(re.match(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$", value, re.IGNORECASE))
 
@@ -1087,6 +1121,8 @@ def _translate_slate_value(translator: Chat, block: Dict[str, Any], source_lang:
             _translate_slate_node(translator, node, source_lang, target_lang)
 
 
+# Hard to test -- mixes dispatch logic with translation execution. Separate what-to-translate
+# (returns field descriptors) from how-to-translate (calls Chat). Accept translator as interface.
 def _translate_block_dict(
     translator: Chat,
     block: Dict[str, Any],
@@ -1104,6 +1140,7 @@ def _translate_block_dict(
     elif btype == "html":
         html = block.get("html") or ""
         block["html"] = _translate_text(translator, html, source_lang, target_lang, strip_html=False)
+    # Extract slateTable translation -- 5 levels of nesting.
     elif btype == "slateTable":
         table = block.get("table")
         if isinstance(table, dict):
@@ -1150,7 +1187,7 @@ def _translate_block_dict(
 
     # Translate text fields inside image subobjects (skipped by generic recursion
     # because "image" is in SKIP_TRANSLATION_FIELDS)
-    _IMAGE_TEXT_SUBFIELDS = ("alt", "title", "description", "rights", "caption")
+    _IMAGE_TEXT_SUBFIELDS = ("alt", "title", "description", "rights", "caption")  # Move to module level.
     for img_key in ("image", "preview_image", "tpreview_image"):
         img_obj = block.get(img_key)
         if isinstance(img_obj, dict):
@@ -1168,6 +1205,13 @@ def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str
         _translate_block_dict(translator, block, source_lang, target_lang)
 
 
+# Issues:
+# - 4th copy of resolve-path-from-url-or-uid logic -- use shared utility.
+# - Inline PAM import -- use top-level HAS_PAM pattern.
+# - Bare except Exception wraps entire body -- hides real bugs.
+# - Mixed responsibilities: resolve object, lookup translation, rebuild URL. Split these.
+# - "../resolveuid/" prefix is fragile -- explain or make constant.
+# - External URLs fall through to misleading "could not resolve" log.
 def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[str]:
     if not isinstance(path, str) or not path.strip():
         return None
@@ -1208,6 +1252,11 @@ def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[
         return None
 
 
+# Issues:
+# - logger.info logs full node data on every call -- use debug level.
+# - "a" branch resolves URL twice (internal_link[0]["@id"] + node["url"]).
+# - Only processes internal_links[0], silently ignores the rest.
+# - "link" vs "a" are two Slate link schemas -- document the difference.
 def _translate_slate_link(node: Dict[str, Any], target_lang: str):
     node_type = node.get("type")
     logger.info("[KYRA AI LINK] processing slate node type=%s data=%s", node_type, {k: v for k, v in node.items() if k != "children"})
@@ -1239,6 +1288,7 @@ def _translate_slate_link(node: Dict[str, Any], target_lang: str):
                 node["url"] = translated_path
 
 
+# url/@id/href rewrite logic is near-identical 3 times -- extract _rewrite_image_path(block, key, target_lang).
 def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
     """Rewrite image/URL references in blocks to point to translated content."""
     url = block.get("url")
@@ -1286,7 +1336,11 @@ def _rewrite_block_image_urls(block: Dict[str, Any], target_lang: str):
 
 
 def _rewrite_urls_recursive(obj: Any, target_lang: str):
-    """Recursively walk blocks/dicts/lists and rewrite image URLs."""
+    """Recursively walk blocks/dicts/lists and rewrite image URLs.
+
+    No recursion depth limit -- add a max_depth parameter. Same applies to
+    _translate_links_in_node and _translate_slate_node.
+    """
     if isinstance(obj, dict):
         # If it looks like a block, rewrite its image URLs
         if obj.get("url") or obj.get("@id") or obj.get("href"):
@@ -1373,6 +1427,7 @@ def _translate_slate_node(translator: Chat, node: Any, source_lang: str, target_
             _translate_slate_node(translator, child, source_lang, target_lang)
 
 
+# Stores PlanEntry TypedDict {actions, user_id, created, page_uid}
 def _store_plan(obj, plan_id: str, actions: List[Dict[str, Any]], user_id: str) -> None:
     annotations = IAnnotations(obj)
     plans = annotations.get(PLAN_STORAGE_KEY)
@@ -1435,6 +1490,7 @@ class AIActionsService(ServiceBase):
         user_id = api.user.get_current().getId()
         _store_plan(target, plan_id, actions, user_id)
 
+        # -> PlanResponse TypedDict {plan_id, actions, preview, translation_report}
         return {
             "plan_id": plan_id,
             "actions": actions,
@@ -1472,9 +1528,10 @@ class AIActionsService(ServiceBase):
         if hasattr(target, "__delattr__"):
             try:
                 delattr(target, "_v_last_translation_report")
-            except Exception:
+            except Exception:  # swallows AttributeError if volatile attr already gone
                 pass
 
+        # -> ApplyResponse TypedDict {result, changed, reload, report}
         return {
             "result": "ok",
             "changed": changed,
@@ -1485,6 +1542,8 @@ class AIActionsService(ServiceBase):
 
 _SYNC_TOLERANCE_SECONDS = 5
 
+# Intentionally inherits from Service (not ServiceBase) because this endpoint
+# only reads translation status and doesn't need the AI gateway.
 class AITranslationStatusService(Service):
 
     def reply(self):
@@ -1529,7 +1588,7 @@ class AITranslationStatusService(Service):
                     "modified": trans_modified.ISO8601(),
                     "is_outdated": is_outdated,
                 })
-            except Exception:
+            except Exception:  # swallows errors reading translation metadata (broken object, missing attribute)
                 continue
 
         return {

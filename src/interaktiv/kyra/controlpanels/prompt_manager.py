@@ -5,7 +5,7 @@ from plone.restapi.controlpanels import RegistryConfigletPanel
 
 @adapter(Interface, Interface)
 class PromptManagerConfigletPanel(RegistryConfigletPanel):
-    schema = None
+    schema = None  # configlet with no schema -- is this still needed?
     schema_prefix = "interaktiv.kyra"
     configlet_id = "ai-prompt-manager"
     configlet_category_id = "Products"

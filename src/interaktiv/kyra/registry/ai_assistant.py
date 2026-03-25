@@ -3,6 +3,10 @@ from plone import schema
 from zope.interface import Interface
 
 
+# edit_backend_url and edit_backend_api_key are read via interface=IAIAssistantSchema
+# but not declared here -- they rely on raw registry keys from upgrade steps and
+# registry.xml. New installs get them from registry.xml but without schema validation,
+# defaults, or control panel labels. Add them to this schema as the single source of truth.
 class IAIAssistantSchema(Interface):
     gateway_url = schema.URI(
         title=_('trans_label_gateway_url'),
