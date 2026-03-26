@@ -85,11 +85,11 @@ def _capabilities_for(context) -> dict:
 
     if can_edit:
         try:
-            edit_url = api.portal.get_registry_record(
-                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.edit_backend_url",
+            openai_key = api.portal.get_registry_record(
+                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.openai_api_key",
                 default="",
             )
-            if edit_url:
+            if openai_key:
                 result["edit_backend_url"] = "proxy"
         except Exception:
             pass

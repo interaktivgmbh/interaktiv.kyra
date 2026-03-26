@@ -4,14 +4,14 @@ from zope.interface import Interface
 
 
 class IAIAssistantSchema(Interface):
-    gateway_url = schema.URI(
+    gateway_url = schema.TextLine(
         title=_('trans_label_gateway_url'),
         description=_('trans_help_gateway_url'),
         required=True,
         default='http://localhost'
     )
 
-    keycloak_realms_url = schema.URI(
+    keycloak_realms_url = schema.TextLine(
         title=_('trans_label_keycloak_realms_url'),
         description=_('trans_help_keycloak_realms_url'),
         required=True,
@@ -53,11 +53,18 @@ class IAIAssistantSchema(Interface):
         required=False,
     )
 
-    edit_backend_url = schema.TextLine(
-        title=_('Edit Backend URL'),
-        description=_('External backend URL for block-editing mode. Leave empty to disable.'),
-        default='',
+    openai_api_key = schema.TextLine(
+        title=u"OpenAI API Key",
+        description=u"API key for the LLM powering the Layout Agent (OpenAI-compatible).",
         required=False,
+        default=u"",
+    )
+
+    openai_model = schema.TextLine(
+        title=u"Layout Agent LLM Model",
+        description=u"Model ID for the Layout Agent (e.g. gpt-5.4-mini, gpt-4o).",
+        required=False,
+        default=u"gpt-5.4-mini",
     )
 
     github_token = schema.Password(

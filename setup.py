@@ -6,7 +6,7 @@ URL = 'https://github.com/interaktivgmbh/interaktiv.kyra'
 EMAIL = 'support@interaktiv.de'
 AUTHOR = 'Interaktiv GmbH'
 REQUIRES_PYTHON = '>=3.11'
-VERSION = '2.1.4'
+VERSION = '2.2.0'
 REQUIRED = [
     'setuptools',
     'Plone>=6.0',
@@ -18,6 +18,12 @@ REQUIRED = [
     'pdfminer.six',
     'deepl',
     'passlib',
+    'langchain>=1.2',
+    'langchain-openai>=1.1',
+    'langchain-core>=1.2',
+    'langgraph>=1.0',
+    'langchain-text-splitters>=0.3',
+    'httpx',
 ]
 EXTRAS = {
     'test': ['plone.app.testing']
