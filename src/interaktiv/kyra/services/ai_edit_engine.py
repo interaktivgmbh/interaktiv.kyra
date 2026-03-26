@@ -23,6 +23,7 @@ from plone.restapi.services import Service
 from zope.interface import alsoProvides
 
 from interaktiv.kyra.agent.stock_photos import make_stock_photo_tools
+from interaktiv.kyra.services.ai_edit_documents import load_documents_from_plone, make_document_tools
 from interaktiv.kyra.agent.volto_vanilla.agent import make_agent
 from interaktiv.kyra.agent.volto_vanilla.converter import volto_to_page_state
 from interaktiv.kyra.agent.volto_vanilla.engine import Engine
@@ -318,6 +319,9 @@ class AIEditCreateConversation(_EngineServiceBase):
             )
             if "create" in permissions:
                 tools.extend(make_stock_photo_tools())
+            # Document search tools (loaded from Plone catalog)
+            doc_store = load_documents_from_plone()
+            tools.extend(make_document_tools(doc_store))
 
         # Load prompt + reference section
         try:
