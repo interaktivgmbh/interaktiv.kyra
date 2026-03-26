@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, RootModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -90,7 +90,7 @@ class HighlightAttributes(BaseModel):
     image_url: str
     title: str
     html: str
-    button_show: bool
+    button_show: bool = True
     button_text: str
     button_link: str
     description_color: str | None = None
@@ -154,6 +154,93 @@ class AccordionAttributes(BaseModel):
     exclusive: bool
     collapsed: bool
     filtering: bool
+
+
+class QuoteAttributes(BaseModel):
+    html: str
+    source_html: str = ""
+    extra_html: str = ""
+    variation: str = "default"
+    position: str | None = None
+    reversed: bool = False
+    title_html: str = ""
+    image_url: str = ""
+
+
+class StatisticItemAttributes(BaseModel):
+    value: str
+    label: str
+    info: str = ""
+    link: str = ""
+    prefix: str = ""
+    suffix: str = ""
+
+
+class StatisticAttributes(BaseModel):
+    horizontal: bool = False
+    inverted: bool = False
+    size: str = "small"
+    widths: int = 1
+    animation_enabled: bool = False
+    animation_duration: float = 5.0
+    animation_decimals: int = 0
+
+
+class FormTextFieldAttributes(BaseModel):
+    label: str
+    description: str = ""
+    required: bool = False
+
+
+class FormEmailFieldAttributes(BaseModel):
+    label: str
+    description: str = ""
+    required: bool = False
+    use_as_reply_to: bool = False
+
+
+class FormSelectFieldAttributes(BaseModel):
+    label: str
+    description: str = ""
+    required: bool = False
+    options: list[str] = Field(default_factory=list)
+
+
+class FormHiddenFieldAttributes(BaseModel):
+    label: str
+    value: str
+
+
+class FormAttributes(BaseModel):
+    title: str
+    description: str = ""
+    submit_label: str = "Submit"
+    show_cancel: bool = False
+    cancel_label: str = ""
+    recipient_email: str = ""
+    subject: str = ""
+
+
+class TabAttributes(BaseModel):
+    title: str
+
+
+class TabsAttributes(BaseModel):
+    title: str = ""
+    description: str = ""
+    variation: str = "default"
+    hide_empty_tabs: bool = False
+
+
+class PdfViewerAttributes(BaseModel):
+    url: str
+    initial_page: int = 1
+    fit_page_width: bool = True
+    hide_toolbar: bool = False
+    hide_navbar: bool = False
+    disable_scroll: bool = False
+    click_to_download: bool = False
+    show_pages_preview: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -249,9 +336,33 @@ class TableBlock(BaseModel):
     attributes: TableAttributes
 
 
+class QuoteBlock(BaseModel):
+    type: Literal["quote"]
+    id: str
+    path: str
+    name: str
+    attributes: QuoteAttributes
+
+
+class PdfViewerBlock(BaseModel):
+    type: Literal["pdf_viewer"]
+    id: str
+    path: str
+    name: str
+    attributes: PdfViewerAttributes
+
+
 # ---------------------------------------------------------------------------
 # Child block models (only valid as children of specific container types)
 # ---------------------------------------------------------------------------
+
+
+class StatisticItemBlock(BaseModel):
+    type: Literal["statistic_item"]
+    id: str
+    path: str
+    name: str
+    attributes: StatisticItemAttributes
 
 
 class SlideBlock(BaseModel):
@@ -337,6 +448,57 @@ class AccordionBlock(BaseModel):
     children: list[AccordionPanelBlock]
 
 
+class TabBlock(BaseModel):
+    type: Literal["tab"]
+    id: str
+    path: str
+    name: str
+    attributes: TabAttributes
+    children: list[Block]
+
+
+class StatisticBlock(BaseModel):
+    type: Literal["statistic"]
+    id: str
+    path: str
+    name: str
+    attributes: StatisticAttributes
+    children: list[StatisticItemBlock]
+
+
+class FormFieldBlock(BaseModel):
+    """Generic form field block (covers all form_*_field types)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    type: str
+    id: str
+    path: str
+    name: str
+    attributes: Any
+
+
+FormChild = FormFieldBlock | RichTextBlock
+
+
+class FormBlock(BaseModel):
+    type: Literal["form"]
+    id: str
+    path: str
+    name: str
+    attributes: FormAttributes
+    children: list[FormChild]
+
+
+class TabsBlock(BaseModel):
+    type: Literal["tabs"]
+    id: str
+    path: str
+    name: str
+    attributes: TabsAttributes
+    children: list[TabBlock]
+
+
 # ---------------------------------------------------------------------------
 # Top-level block union
 # ---------------------------------------------------------------------------
@@ -353,10 +515,15 @@ type Block = Annotated[
     | TeaserBlock
     | HighlightBlock
     | TableBlock
+    | QuoteBlock
+    | PdfViewerBlock
     | SliderBlock
     | CarouselBlock
     | ColumnsBlock
-    | AccordionBlock,
+    | AccordionBlock
+    | StatisticBlock
+    | FormBlock
+    | TabsBlock,
     Field(discriminator="type"),
 ]
 
@@ -368,6 +535,8 @@ class Layout(RootModel[list[Block]]):
 # Resolve forward references now that Block is defined.
 ColumnBlock.model_rebuild()
 AccordionPanelBlock.model_rebuild()
+TabBlock.model_rebuild()
+FormBlock.model_rebuild()
 
 
 # ---------------------------------------------------------------------------

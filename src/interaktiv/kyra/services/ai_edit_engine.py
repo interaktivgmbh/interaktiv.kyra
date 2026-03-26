@@ -73,18 +73,15 @@ def _get_loop() -> asyncio.AbstractEventLoop:
 
 
 def _make_llm(model: str, api_key: str) -> Any:
-    kwargs: dict[str, Any] = dict(
+    return ChatOpenAI(
         model=model,
         api_key=api_key,  # type: ignore[arg-type]
         temperature=0.5,
         max_tokens=16384,  # pyright: ignore[reportCallIssue]
         max_retries=3,
+        use_responses_api=True,
+        reasoning={"effort": "low"},
     )
-    # Reasoning parameters only for o-series models (o1, o3, o4-mini, etc.)
-    if model.startswith("o"):
-        kwargs["use_responses_api"] = True
-        kwargs["reasoning"] = {"effort": "low"}
-    return ChatOpenAI(**kwargs)
 
 
 def _get_openai_config() -> tuple[str, str]:

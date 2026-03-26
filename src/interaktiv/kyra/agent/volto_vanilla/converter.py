@@ -183,6 +183,17 @@ def _slate_to_html(nodes: list[dict[str, Any]]) -> str:
     return "".join(_slate_node_to_html(n) for n in nodes)
 
 
+def _slate_to_plaintext(nodes: list[dict[str, Any]]) -> str:
+    """Extract plain text from a Slate AST."""
+    parts: list[str] = []
+    for node in nodes:
+        if "text" in node:
+            parts.append(node["text"])
+        else:
+            parts.append(_slate_to_plaintext(node.get("children", [])))
+    return "".join(parts).strip()
+
+
 _SLATE_TAG_MAP: dict[str, str | None] = {
     "p": "p",
     "h2": "h2",
@@ -192,6 +203,13 @@ _SLATE_TAG_MAP: dict[str, str | None] = {
     "ol": "ol",
     "li": "li",
     "lic": None,  # list item content wrapper — just pass through
+    # Inline formatting elements (Slate stores marks as element nodes)
+    "strong": "strong",
+    "em": "em",
+    "u": "u",
+    "del": "del",
+    "sub": "sub",
+    "sup": "sup",
 }
 
 
@@ -780,6 +798,272 @@ def _convert_accordion(
     }
 
 
+def _convert_quote(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    return {
+        "type": "quote",
+        "id": uid,
+        "path": path,
+        "name": names.next("quote"),
+        "attributes": {
+            "html": _slate_to_html(raw.get("value", [])),
+            "source_html": _slate_to_html(raw.get("source", [])),
+            "extra_html": _slate_to_html(raw.get("extra", [])),
+            "variation": raw.get("variation", "default"),
+            "position": raw.get("position"),
+            "reversed": raw.get("reversed", False),
+            "title_html": (
+                _slate_to_html(raw.get("title", []))
+                if isinstance(raw.get("title"), list)
+                else ""
+            ),
+            "image_url": _extract_href(raw.get("image")),
+        },
+    }
+
+
+_VOLTO_WIDTHS_TO_INT: dict[str, int] = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+}
+
+
+def _convert_statistic(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    container_name = names.next("statistic")
+    child_path = _child_path(path, container_name)
+
+    animation = raw.get("animation") or {}
+    widths_str = raw.get("widths", "one")
+    widths_int = _VOLTO_WIDTHS_TO_INT.get(widths_str, 1)
+
+    children: list[dict[str, Any]] = []
+    for item in raw.get("items", []):
+        children.append(
+            {
+                "type": "statistic_item",
+                "id": item.get("@id", ""),
+                "path": child_path,
+                "name": names.next("statistic_item"),
+                "attributes": {
+                    "value": _slate_to_plaintext(item.get("value", [])),
+                    "label": _slate_to_plaintext(item.get("label", [])),
+                    "info": _slate_to_plaintext(item.get("info", [])),
+                    "link": item.get("href", ""),
+                    "prefix": item.get("prefix", ""),
+                    "suffix": item.get("suffix", ""),
+                },
+            }
+        )
+
+    return {
+        "type": "statistic",
+        "id": uid,
+        "path": path,
+        "name": container_name,
+        "attributes": {
+            "horizontal": raw.get("horizontal", False),
+            "inverted": raw.get("inverted", False),
+            "size": raw.get("size", "small"),
+            "widths": widths_int,
+            "animation_enabled": bool(animation.get("enabled", False)),
+            "animation_duration": float(animation.get("duration", 5)),
+            "animation_decimals": int(animation.get("decimals", 0)),
+        },
+        "children": children,
+    }
+
+
+_VOLTO_FIELD_TYPE_TO_IR: dict[str, str] = {
+    "text": "form_text_field",
+    "textarea": "form_textarea_field",
+    "number": "form_number_field",
+    "from": "form_email_field",
+    "select": "form_select_field",
+    "single_choice": "form_radio_field",
+    "multiple_choice": "form_checkbox_field",
+    "checkbox": "form_checkbox_field",
+    "date": "form_date_field",
+    "attachment": "form_attachment_field",
+    "hidden": "form_hidden_field",
+    "static_text": "rich_text",
+}
+
+
+def _convert_form(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    container_name = names.next("form")
+    child_path = _child_path(path, container_name)
+
+    children: list[dict[str, Any]] = []
+    for sub in raw.get("subblocks", []):
+        field_type = sub.get("field_type", "text")
+        ir_type = _VOLTO_FIELD_TYPE_TO_IR.get(field_type, "form_text_field")
+
+        if ir_type == "rich_text":
+            children.append(
+                {
+                    "type": "rich_text",
+                    "id": sub.get("id", ""),
+                    "path": child_path,
+                    "name": names.next("rich_text"),
+                    "attributes": {"html": sub.get("value", "")},
+                }
+            )
+            continue
+
+        attrs: dict[str, Any] = {
+            "label": sub.get("label", ""),
+        }
+
+        if ir_type == "form_hidden_field":
+            attrs["value"] = sub.get("value", "")
+        else:
+            attrs["description"] = sub.get("description", "")
+            attrs["required"] = sub.get("required", False)
+
+        if ir_type == "form_email_field":
+            attrs["use_as_reply_to"] = sub.get("use_as_reply_to", False)
+
+        if ir_type in (
+            "form_select_field",
+            "form_radio_field",
+            "form_checkbox_field",
+        ):
+            attrs["options"] = sub.get("input_values", [])
+
+        children.append(
+            {
+                "type": ir_type,
+                "id": sub.get("id", ""),
+                "path": child_path,
+                "name": names.next(ir_type),
+                "attributes": attrs,
+            }
+        )
+
+    return {
+        "type": "form",
+        "id": uid,
+        "path": path,
+        "name": container_name,
+        "attributes": {
+            "title": raw.get("title", ""),
+            "description": raw.get("description", ""),
+            "submit_label": raw.get("submit_label", "Submit"),
+            "show_cancel": raw.get("show_cancel", False),
+            "cancel_label": raw.get("cancel_label", ""),
+            "recipient_email": raw.get("default_to", ""),
+            "subject": raw.get("default_subject", ""),
+        },
+        "children": children,
+    }
+
+
+def _convert_tabs(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    container_name = names.next("tabs")
+    child_path = _child_path(path, container_name)
+
+    data = raw.get("data", {})
+    tab_blocks = data.get("blocks", {})
+    tab_items = data.get("blocks_layout", {}).get("items", [])
+
+    children: list[dict[str, Any]] = []
+    for tab_uid in tab_items:
+        tab_raw = tab_blocks.get(tab_uid)
+        if tab_raw is None:
+            continue
+
+        tab_name = names.next("tab")
+        inner_path = _child_path(child_path, tab_name)
+
+        inner_blocks = tab_raw.get("blocks", {})
+        inner_items = tab_raw.get("blocks_layout", {}).get("items", [])
+        inner_children = _convert_blocks(
+            inner_blocks, inner_items, inner_path, page_title, page_description, names
+        )
+
+        children.append(
+            {
+                "type": "tab",
+                "id": tab_uid,
+                "path": child_path,
+                "name": tab_name,
+                "attributes": {
+                    "title": tab_raw.get("title", ""),
+                },
+                "children": inner_children,
+            }
+        )
+
+    return {
+        "type": "tabs",
+        "id": uid,
+        "path": path,
+        "name": container_name,
+        "attributes": {
+            "title": raw.get("title", ""),
+            "description": raw.get("description", ""),
+            "variation": raw.get("variation", "default"),
+            "hide_empty_tabs": raw.get("hideEmptyTabs", False),
+        },
+        "children": children,
+    }
+
+
+def _convert_pdf_viewer(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    return {
+        "type": "pdf_viewer",
+        "id": uid,
+        "path": path,
+        "name": names.next("pdf_viewer"),
+        "attributes": {
+            "url": raw.get("url", ""),
+            "initial_page": raw.get("initialPage", 1),
+            "fit_page_width": raw.get("fitPageWidth", True),
+            "hide_toolbar": raw.get("hideToolbar", False),
+            "hide_navbar": raw.get("hideNavbar", False),
+            "disable_scroll": raw.get("disableScroll", False),
+            "click_to_download": raw.get("clickToDownload", False),
+            "show_pages_preview": raw.get("showPagesPreview", False),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Converter dispatch table
 # ---------------------------------------------------------------------------
@@ -806,4 +1090,9 @@ _CONVERTERS: dict[str, _ConverterFn] = {
     "carousel": _convert_carousel,
     "columnsBlock": _convert_columns,
     "accordion": _convert_accordion,
+    "quote": _convert_quote,
+    "statistic_block": _convert_statistic,
+    "form": _convert_form,
+    "tabs_block": _convert_tabs,
+    "pdf_viewer": _convert_pdf_viewer,
 }

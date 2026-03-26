@@ -294,6 +294,16 @@ class Engine:
                 )
             return None
 
+        if container_type in block_defs.RESTRICTED_CHILD_TYPES:
+            allowed_set = block_defs.RESTRICTED_CHILD_TYPES[container_type]
+            if child_type not in allowed_set:
+                return _err(
+                    "invalid_parent_child",
+                    f"Cannot place '{child_type}' inside {container_type}. "
+                    f"Only accepts: [{', '.join(sorted(allowed_set))}].",
+                )
+            return None
+
         if container_type in block_defs.OPEN_CONTAINER_TYPES:
             if child_type in block_defs.CHILD_ONLY_TYPES:
                 return _err(
@@ -485,7 +495,10 @@ class Engine:
         if isinstance(patch, EngineResult):
             return patch
 
-        merged_attributes = block.attributes.model_dump()
+        if hasattr(block.attributes, "model_dump"):
+            merged_attributes = block.attributes.model_dump()
+        else:
+            merged_attributes = dict(block.attributes)
         merged_attributes.update(patch.model_dump(exclude_none=True))
         new_attrs = self._validate_model(
             spec.attributes_model,

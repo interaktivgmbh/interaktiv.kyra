@@ -26,6 +26,13 @@ from interaktiv.kyra.agent.volto_vanilla.schema import (
     DescriptionBlock,
     DividerAttributes,
     DividerBlock,
+    FormAttributes,
+    FormBlock,
+    FormEmailFieldAttributes,
+    FormFieldBlock,
+    FormHiddenFieldAttributes,
+    FormSelectFieldAttributes,
+    FormTextFieldAttributes,
     HeadingAttributes,
     HeadingBlock,
     HighlightAttributes,
@@ -35,14 +42,26 @@ from interaktiv.kyra.agent.volto_vanilla.schema import (
     ImageBlock,
     ImageSize,
     InnerAlignment,
+    PdfViewerAttributes,
+    PdfViewerBlock,
+    QuoteAttributes,
+    QuoteBlock,
     RichTextAttributes,
     RichTextBlock,
     SlideAttributes,
     SlideBlock,
     SliderAttributes,
     SliderBlock,
+    StatisticAttributes,
+    StatisticBlock,
+    StatisticItemAttributes,
+    StatisticItemBlock,
+    TabAttributes,
+    TabBlock,
     TableAttributes,
     TableBlock,
+    TabsAttributes,
+    TabsBlock,
     TeaserAttributes,
     TeaserBlock,
     TitleAttributes,
@@ -478,6 +497,393 @@ class AccordionPatchAttributes(PatchAttributes):
     )
 
 
+_HTML_DESCRIPTION = (
+    "HTML content. Allowed tags: p, h2, h3, ul, ol, li, blockquote, "
+    "a, br, strong, b, em, i, u, s, del, code. Only 'href' on <a>."
+)
+
+
+class QuoteCreateAttributes(CreateAttributes):
+    """Blockquote with attribution."""
+
+    html: str = Field(description="Quote text HTML. " + _HTML_DESCRIPTION)
+    source_html: str = Field(default="", description="Attribution HTML.")
+    extra_html: str = Field(default="", description="Extra context HTML.")
+    variation: Literal["default", "testimonial"] = Field(
+        default="default", description="Visual variation."
+    )
+    position: Literal["left", "center", "right"] | None = Field(
+        default=None, description="Quote alignment."
+    )
+    reversed: bool = Field(default=False, description="Show source before quote.")
+    title_html: str = Field(default="", description="Testimonial title HTML.")
+    image_url: str = Field(default="", description="Testimonial image URL.")
+
+
+class QuotePatchAttributes(PatchAttributes):
+    """Patch attributes for quote blocks."""
+
+    html: str | None = Field(default=None, description="Quote text HTML.")
+    source_html: str | None = Field(default=None, description="Attribution HTML.")
+    extra_html: str | None = Field(default=None, description="Extra context HTML.")
+    variation: Literal["default", "testimonial"] | None = Field(
+        default=None, description="Visual variation."
+    )
+    position: Literal["left", "center", "right"] | None = Field(
+        default=None, description="Quote alignment."
+    )
+    reversed: bool | None = Field(default=None, description="Show source before quote.")
+    title_html: str | None = Field(default=None, description="Testimonial title HTML.")
+    image_url: str | None = Field(default=None, description="Testimonial image URL.")
+
+
+class StatisticItemCreateAttributes(CreateAttributes):
+    """A single statistic / KPI value."""
+
+    value: str = Field(description="The number or metric (e.g. '35,000').")
+    label: str = Field(description="Label below the value (e.g. 'Students').")
+    info: str = Field(default="", description="Extra info text.")
+    link: str = Field(default="", description="Link URL.")
+    prefix: str = Field(default="", description="Text before animated value.")
+    suffix: str = Field(default="", description="Text after animated value.")
+
+
+class StatisticItemPatchAttributes(PatchAttributes):
+    """Patch attributes for statistic items."""
+
+    value: str | None = Field(default=None, description="The number or metric.")
+    label: str | None = Field(default=None, description="Label below the value.")
+    info: str | None = Field(default=None, description="Extra info text.")
+    link: str | None = Field(default=None, description="Link URL.")
+    prefix: str | None = Field(default=None, description="Text before animated value.")
+    suffix: str | None = Field(default=None, description="Text after animated value.")
+
+
+class StatisticCreateAttributes(CreateAttributes):
+    """Statistic / KPI display container."""
+
+    horizontal: bool = Field(default=False, description="Horizontal layout.")
+    inverted: bool = Field(default=False, description="Dark background.")
+    size: Literal["mini", "tiny", "small", "large", "huge"] = Field(
+        default="small", description="Display size."
+    )
+    widths: Literal[1, 2, 3, 4] = Field(default=1, description="Column count (1-4).")
+    animation_enabled: bool = Field(
+        default=False, description="Enable count-up animation."
+    )
+    animation_duration: float = Field(
+        default=5.0, description="Animation duration in seconds."
+    )
+    animation_decimals: int = Field(
+        default=0, description="Decimal places in animated number."
+    )
+
+
+class StatisticPatchAttributes(PatchAttributes):
+    """Patch attributes for statistic containers."""
+
+    horizontal: bool | None = Field(default=None, description="Horizontal layout.")
+    inverted: bool | None = Field(default=None, description="Dark background.")
+    size: Literal["mini", "tiny", "small", "large", "huge"] | None = Field(
+        default=None, description="Display size."
+    )
+    widths: Literal[1, 2, 3, 4] | None = Field(
+        default=None, description="Column count (1-4)."
+    )
+    animation_enabled: bool | None = Field(
+        default=None, description="Enable count-up animation."
+    )
+    animation_duration: float | None = Field(
+        default=None, description="Animation duration in seconds."
+    )
+    animation_decimals: int | None = Field(
+        default=None, description="Decimal places in animated number."
+    )
+
+
+class FormTextFieldCreateAttributes(CreateAttributes):
+    """Text input form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+
+
+class FormTextFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for text form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+
+
+class FormTextareaFieldCreateAttributes(CreateAttributes):
+    """Multiline text form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+
+
+class FormTextareaFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for textarea form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+
+
+class FormNumberFieldCreateAttributes(CreateAttributes):
+    """Number input form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+
+
+class FormNumberFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for number form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+
+
+class FormEmailFieldCreateAttributes(CreateAttributes):
+    """Email input form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+    use_as_reply_to: bool = Field(default=False, description="Use as reply-to address.")
+
+
+class FormEmailFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for email form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+    use_as_reply_to: bool | None = Field(
+        default=None, description="Use as reply-to address."
+    )
+
+
+class FormSelectFieldCreateAttributes(CreateAttributes):
+    """Dropdown select form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+    options: list[str] = Field(description="Dropdown options.")
+
+
+class FormSelectFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for select form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+    options: list[str] | None = Field(default=None, description="Dropdown options.")
+
+
+class FormRadioFieldCreateAttributes(CreateAttributes):
+    """Radio button form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+    options: list[str] = Field(description="Radio options.")
+
+
+class FormRadioFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for radio form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+    options: list[str] | None = Field(default=None, description="Radio options.")
+
+
+class FormCheckboxFieldCreateAttributes(CreateAttributes):
+    """Checkbox group form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+    options: list[str] = Field(default_factory=list, description="Checkbox options.")
+
+
+class FormCheckboxFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for checkbox form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+    options: list[str] | None = Field(default=None, description="Checkbox options.")
+
+
+class FormDateFieldCreateAttributes(CreateAttributes):
+    """Date picker form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+
+
+class FormDateFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for date form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+
+
+class FormAttachmentFieldCreateAttributes(CreateAttributes):
+    """File attachment form field."""
+
+    label: str = Field(description="Field label.")
+    description: str = Field(default="", description="Help text.")
+    required: bool = Field(default=False, description="Required field.")
+
+
+class FormAttachmentFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for attachment form fields."""
+
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+
+
+class FormHiddenFieldCreateAttributes(CreateAttributes):
+    """Hidden form field."""
+
+    label: str = Field(description="Field name/identifier.")
+    value: str = Field(description="Hidden value.")
+
+
+class FormHiddenFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for hidden form fields."""
+
+    label: str | None = Field(default=None, description="Field name/identifier.")
+    value: str | None = Field(default=None, description="Hidden value.")
+
+
+class FormCreateAttributes(CreateAttributes):
+    """Form container."""
+
+    title: str = Field(description="Form title.")
+    description: str = Field(default="", description="Form description.")
+    submit_label: str = Field(default="Submit", description="Submit button label.")
+    show_cancel: bool = Field(default=False, description="Show cancel button.")
+    cancel_label: str = Field(default="", description="Cancel button label.")
+    recipient_email: str = Field(default="", description="Recipient email address.")
+    subject: str = Field(default="", description="Email subject line.")
+
+
+class FormPatchAttributes(PatchAttributes):
+    """Patch attributes for form containers."""
+
+    title: str | None = Field(default=None, description="Form title.")
+    description: str | None = Field(default=None, description="Form description.")
+    submit_label: str | None = Field(default=None, description="Submit button label.")
+    show_cancel: bool | None = Field(default=None, description="Show cancel button.")
+    cancel_label: str | None = Field(default=None, description="Cancel button label.")
+    recipient_email: str | None = Field(
+        default=None, description="Recipient email address."
+    )
+    subject: str | None = Field(default=None, description="Email subject line.")
+
+
+class TabCreateAttributes(CreateAttributes):
+    """Tab child inside a tabs container."""
+
+    title: str = Field(description="Tab heading.")
+
+
+class TabPatchAttributes(PatchAttributes):
+    """Patch attributes for tabs."""
+
+    title: str | None = Field(default=None, description="Tab heading.")
+
+
+class TabsCreateAttributes(CreateAttributes):
+    """Tabs container."""
+
+    title: str = Field(default="", description="Block title.")
+    description: str = Field(default="", description="Block description.")
+    variation: Literal[
+        "default",
+        "accordion",
+        "horizontal-responsive",
+        "carousel-horizontal",
+        "carousel-vertical",
+    ] = Field(default="default", description="Display variation.")
+    hide_empty_tabs: bool = Field(
+        default=False, description="Hide tabs with no content."
+    )
+
+
+class TabsPatchAttributes(PatchAttributes):
+    """Patch attributes for tabs containers."""
+
+    title: str | None = Field(default=None, description="Block title.")
+    description: str | None = Field(default=None, description="Block description.")
+    variation: (
+        Literal[
+            "default",
+            "accordion",
+            "horizontal-responsive",
+            "carousel-horizontal",
+            "carousel-vertical",
+        ]
+        | None
+    ) = Field(default=None, description="Display variation.")
+    hide_empty_tabs: bool | None = Field(
+        default=None, description="Hide tabs with no content."
+    )
+
+
+class PdfViewerCreateAttributes(CreateAttributes):
+    """Embedded PDF viewer."""
+
+    url: str = Field(description="PDF file URL or path.")
+    initial_page: int = Field(default=1, description="Starting page number.")
+    fit_page_width: bool = Field(
+        default=True, description="Scale to fit container width."
+    )
+    hide_toolbar: bool = Field(default=False, description="Hide PDF toolbar.")
+    hide_navbar: bool = Field(default=False, description="Hide navigation bar.")
+    disable_scroll: bool = Field(default=False, description="Disable page scrolling.")
+    click_to_download: bool = Field(
+        default=False, description="Enable click-to-download."
+    )
+    show_pages_preview: bool = Field(
+        default=False, description="Show thumbnail page previews."
+    )
+
+
+class PdfViewerPatchAttributes(PatchAttributes):
+    """Patch attributes for PDF viewer blocks."""
+
+    url: str | None = Field(default=None, description="PDF file URL or path.")
+    initial_page: int | None = Field(default=None, description="Starting page number.")
+    fit_page_width: bool | None = Field(
+        default=None, description="Scale to fit container width."
+    )
+    hide_toolbar: bool | None = Field(default=None, description="Hide PDF toolbar.")
+    hide_navbar: bool | None = Field(default=None, description="Hide navigation bar.")
+    disable_scroll: bool | None = Field(
+        default=None, description="Disable page scrolling."
+    )
+    click_to_download: bool | None = Field(
+        default=None, description="Enable click-to-download."
+    )
+    show_pages_preview: bool | None = Field(
+        default=None, description="Show thumbnail page previews."
+    )
+
+
 class MetadataPatchAttributes(PatchAttributes):
     """Patch attributes for page metadata. Only provided fields are changed."""
 
@@ -678,6 +1084,159 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "Create an `accordion` container.",
         "Patch attributes on an existing `accordion` container. Only provided fields are changed.",
     ),
+    BlockSpec(
+        "quote",
+        QuoteBlock,
+        QuoteAttributes,
+        QuoteCreateAttributes,
+        QuotePatchAttributes,
+        "Create a `quote` element (blockquote with attribution).",
+        "Patch attributes on an existing `quote` element. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "statistic_item",
+        StatisticItemBlock,
+        StatisticItemAttributes,
+        StatisticItemCreateAttributes,
+        StatisticItemPatchAttributes,
+        "Create a `statistic_item` inside a statistic container.",
+        "Patch attributes on an existing `statistic_item`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "statistic",
+        StatisticBlock,
+        StatisticAttributes,
+        StatisticCreateAttributes,
+        StatisticPatchAttributes,
+        "Create a `statistic` container for KPI/metrics display.",
+        "Patch attributes on an existing `statistic` container. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_text_field",
+        FormFieldBlock,
+        FormTextFieldAttributes,
+        FormTextFieldCreateAttributes,
+        FormTextFieldPatchAttributes,
+        "Create a `form_text_field` inside a form.",
+        "Patch attributes on an existing `form_text_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_textarea_field",
+        FormFieldBlock,
+        FormTextFieldAttributes,
+        FormTextareaFieldCreateAttributes,
+        FormTextareaFieldPatchAttributes,
+        "Create a `form_textarea_field` inside a form.",
+        "Patch attributes on an existing `form_textarea_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_number_field",
+        FormFieldBlock,
+        FormTextFieldAttributes,
+        FormNumberFieldCreateAttributes,
+        FormNumberFieldPatchAttributes,
+        "Create a `form_number_field` inside a form.",
+        "Patch attributes on an existing `form_number_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_email_field",
+        FormFieldBlock,
+        FormEmailFieldAttributes,
+        FormEmailFieldCreateAttributes,
+        FormEmailFieldPatchAttributes,
+        "Create a `form_email_field` inside a form.",
+        "Patch attributes on an existing `form_email_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_select_field",
+        FormFieldBlock,
+        FormSelectFieldAttributes,
+        FormSelectFieldCreateAttributes,
+        FormSelectFieldPatchAttributes,
+        "Create a `form_select_field` (dropdown) inside a form.",
+        "Patch attributes on an existing `form_select_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_radio_field",
+        FormFieldBlock,
+        FormSelectFieldAttributes,
+        FormRadioFieldCreateAttributes,
+        FormRadioFieldPatchAttributes,
+        "Create a `form_radio_field` inside a form.",
+        "Patch attributes on an existing `form_radio_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_checkbox_field",
+        FormFieldBlock,
+        FormSelectFieldAttributes,
+        FormCheckboxFieldCreateAttributes,
+        FormCheckboxFieldPatchAttributes,
+        "Create a `form_checkbox_field` inside a form.",
+        "Patch attributes on an existing `form_checkbox_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_date_field",
+        FormFieldBlock,
+        FormTextFieldAttributes,
+        FormDateFieldCreateAttributes,
+        FormDateFieldPatchAttributes,
+        "Create a `form_date_field` inside a form.",
+        "Patch attributes on an existing `form_date_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_attachment_field",
+        FormFieldBlock,
+        FormTextFieldAttributes,
+        FormAttachmentFieldCreateAttributes,
+        FormAttachmentFieldPatchAttributes,
+        "Create a `form_attachment_field` inside a form.",
+        "Patch attributes on an existing `form_attachment_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form_hidden_field",
+        FormFieldBlock,
+        FormHiddenFieldAttributes,
+        FormHiddenFieldCreateAttributes,
+        FormHiddenFieldPatchAttributes,
+        "Create a `form_hidden_field` inside a form.",
+        "Patch attributes on an existing `form_hidden_field`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "form",
+        FormBlock,
+        FormAttributes,
+        FormCreateAttributes,
+        FormPatchAttributes,
+        "Create a `form` container.",
+        "Patch attributes on an existing `form` container. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "tab",
+        TabBlock,
+        TabAttributes,
+        TabCreateAttributes,
+        TabPatchAttributes,
+        "Create a `tab` inside a tabs container.",
+        "Patch attributes on an existing `tab`. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "tabs",
+        TabsBlock,
+        TabsAttributes,
+        TabsCreateAttributes,
+        TabsPatchAttributes,
+        "Create a `tabs` container.",
+        "Patch attributes on an existing `tabs` container. Only provided fields are changed.",
+    ),
+    BlockSpec(
+        "pdf_viewer",
+        PdfViewerBlock,
+        PdfViewerAttributes,
+        PdfViewerCreateAttributes,
+        PdfViewerPatchAttributes,
+        "Create a `pdf_viewer` element.",
+        "Patch attributes on an existing `pdf_viewer` element. Only provided fields are changed.",
+    ),
 )
 
 BLOCK_SPECS_BY_TYPE: dict[str, BlockSpec] = {
@@ -689,12 +1248,35 @@ CHILD_TYPES: dict[str, str] = {
     "carousel": "carousel_item",
     "columns": "column",
     "accordion": "accordion_panel",
+    "statistic": "statistic_item",
+    "tabs": "tab",
 }
 
-CHILD_ONLY_TYPES = set(CHILD_TYPES.values())
+FORM_FIELD_TYPES = {
+    "form_text_field",
+    "form_textarea_field",
+    "form_number_field",
+    "form_email_field",
+    "form_select_field",
+    "form_radio_field",
+    "form_checkbox_field",
+    "form_date_field",
+    "form_attachment_field",
+    "form_hidden_field",
+}
 
-CONTAINER_TYPES = set(CHILD_TYPES.keys()) | {"column", "accordion_panel"}
+RESTRICTED_CHILD_TYPES: dict[str, set[str]] = {
+    "form": FORM_FIELD_TYPES | {"rich_text"},
+}
 
-OPEN_CONTAINER_TYPES = CONTAINER_TYPES - set(CHILD_TYPES.keys())
+CHILD_ONLY_TYPES = set(CHILD_TYPES.values()) | FORM_FIELD_TYPES
+
+OPEN_CONTAINER_TYPES = {"column", "accordion_panel", "tab"}
+
+CONTAINER_TYPES = (
+    set(CHILD_TYPES.keys()) | OPEN_CONTAINER_TYPES | set(RESTRICTED_CHILD_TYPES.keys())
+)
 
 PARENT_NEEDED: dict[str, str] = {v: k for k, v in CHILD_TYPES.items()}
+for _ft in FORM_FIELD_TYPES:
+    PARENT_NEEDED[_ft] = "form"

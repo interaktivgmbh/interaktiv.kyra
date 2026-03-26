@@ -497,6 +497,144 @@ def _render_accordion(b: dict[str, Any], w: int) -> list[str]:
     return lines
 
 
+def _render_quote(b: dict[str, Any], w: int) -> list[str]:
+    attrs = b["attributes"]
+    box_w = min(w, max(24, w - 4))
+    iw = box_w - 4
+    lines: list[str] = ["│ " + " " * iw + " │"]
+    quote_text = _strip_html(attrs.get("html", ""))
+    if quote_text:
+        for ql in _wrap(f"\u201c{quote_text}\u201d", iw):
+            lines.append("│ " + _pad(ql, iw) + " │")
+    source = _strip_html(attrs.get("source_html", ""))
+    if source:
+        lines.append("│ " + " " * iw + " │")
+        lines.append("│ " + _pad(f"— {source}", iw, "right") + " │")
+    extra = _strip_html(attrs.get("extra_html", ""))
+    if extra:
+        for el in _wrap(extra, iw):
+            lines.append("│ " + _pad(el, iw, "right") + " │")
+    lines.append("│ " + " " * iw + " │")
+    return [_pad(line, w, "center") for line in lines]
+
+
+def _render_statistic(b: dict[str, Any], w: int) -> list[str]:
+    children = b.get("children", [])
+    if not children:
+        return [_pad("  (empty statistic)", w)]
+
+    horizontal = b["attributes"].get("horizontal", False)
+
+    if horizontal:
+        gap = 2
+        n = len(children)
+        item_w = max(10, (w - (n - 1) * gap) // n)
+        item_renders: list[list[str]] = []
+        item_widths: list[int] = []
+        for i, child in enumerate(children):
+            ca = child["attributes"]
+            iw = item_w if i < n - 1 else w - item_w * (n - 1) - (n - 1) * gap
+            card: list[str] = []
+            card.append(_pad(ca.get("value", ""), iw, "center"))
+            if ca.get("label"):
+                card.append(_pad(ca["label"], iw, "center"))
+            if ca.get("info"):
+                card.append(_pad(ca["info"], iw, "center"))
+            item_renders.append(card)
+            item_widths.append(iw)
+        return _merge_side_by_side(item_renders, item_widths, gap)
+    else:
+        lines: list[str] = []
+        for child in children:
+            ca = child["attributes"]
+            lines.append(_pad(ca.get("value", ""), w, "center"))
+            if ca.get("label"):
+                lines.append(_pad(ca["label"], w, "center"))
+            if ca.get("info"):
+                lines.append(_pad(ca["info"], w, "center"))
+            lines.append("")
+        return lines
+
+
+def _render_form(b: dict[str, Any], w: int) -> list[str]:
+    attrs = b["attributes"]
+    children = b.get("children", [])
+    box_w = min(w, max(30, w - 4))
+    iw = box_w - 4
+
+    lines: list[str] = ["┌" + "─" * (box_w - 2) + "┐"]
+    if attrs.get("title"):
+        for tl in _wrap(attrs["title"], iw):
+            lines.append("│ " + _pad(tl, iw) + " │")
+        lines.append("│ " + " " * iw + " │")
+
+    for child in children:
+        ct = child.get("type", "")
+        if ct == "rich_text":
+            text = _strip_html(child["attributes"].get("html", ""))
+            if text:
+                for tl in _wrap(text, iw):
+                    lines.append("│ " + _pad(tl, iw) + " │")
+        elif ct.startswith("form_"):
+            ca = child["attributes"]
+            label = ca.get("label", "")
+            req = " *" if ca.get("required") else ""
+            lines.append("│ " + _pad(f"{label}{req}:", iw) + " │")
+            field_w = min(iw, 30)
+            lines.append("│ " + _pad("[" + "·" * (field_w - 2) + "]", iw) + " │")
+        lines.append("│ " + " " * iw + " │")
+
+    btn_label = attrs.get("submit_label", "Submit")
+    lines.append("│ " + _pad(f"[ {btn_label} ]", iw, "center") + " │")
+    lines.append("└" + "─" * (box_w - 2) + "┘")
+    return [_pad(line, w, "center") for line in lines]
+
+
+def _render_tabs(b: dict[str, Any], w: int) -> list[str]:
+    attrs = b["attributes"]
+    children = b.get("children", [])
+
+    lines: list[str] = []
+
+    # Tab bar
+    tab_titles = [c["attributes"].get("title", "?") for c in children]
+    bar = "  ".join(f"[{t}]" for t in tab_titles) if tab_titles else "(no tabs)"
+    lines.append(_pad(bar, w))
+    lines.append("─" * w)
+
+    # Show first tab's content
+    if children:
+        first = children[0]
+        inner_w = w - 4
+        for inner_block in first.get("children", []):
+            for bl in _render_block(inner_block, inner_w):
+                lines.append(_pad("  " + bl, w))
+        if not first.get("children"):
+            lines.append(_pad("  (empty)", w))
+
+    return lines
+
+
+def _render_pdf_viewer(b: dict[str, Any], w: int) -> list[str]:
+    attrs = b["attributes"]
+    url = attrs.get("url", "")
+    box_w = max(16, int(w * 0.6))
+    iw = box_w - 4
+    short = url if len(url) <= iw else url[: iw - 1] + "…"
+    pdf = [
+        "┌" + "─" * (box_w - 2) + "┐",
+        "│ " + _pad("", iw) + " │",
+        "│ " + _pad("📄 PDF", iw, "center") + " │",
+    ]
+    if url:
+        pdf.append("│ " + _pad(short, iw, "center") + " │")
+    pdf += [
+        "│ " + _pad("", iw) + " │",
+        "└" + "─" * (box_w - 2) + "┘",
+    ]
+    return [_pad(line, w, "center") for line in pdf]
+
+
 # ─────────────────────────────────────────────────────────
 # Dispatch table
 # ─────────────────────────────────────────────────────────
@@ -517,6 +655,11 @@ _RENDERERS: dict[str, Any] = {
     "slider": _render_slider,
     "carousel": _render_carousel,
     "accordion": _render_accordion,
+    "quote": _render_quote,
+    "statistic": _render_statistic,
+    "form": _render_form,
+    "tabs": _render_tabs,
+    "pdf_viewer": _render_pdf_viewer,
 }
 
 

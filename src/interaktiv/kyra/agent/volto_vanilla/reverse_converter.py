@@ -251,7 +251,15 @@ def _reverse_block(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any
     return converter(block, ctx)
 
 
-_CONTAINER_TYPES: set[str] = {"slider", "carousel", "columns", "accordion"}
+_CONTAINER_TYPES: set[str] = {
+    "slider",
+    "carousel",
+    "columns",
+    "accordion",
+    "statistic",
+    "form",
+    "tabs",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -273,14 +281,15 @@ def _random_key(length: int = 5) -> str:
 # HTML → Slate
 # ---------------------------------------------------------------------------
 
-_MARK_TAGS: dict[str, str] = {
-    "strong": "bold",
-    "b": "bold",
-    "em": "italic",
-    "i": "italic",
-    "u": "underline",
-    "del": "strikethrough",
-    "s": "strikethrough",
+# Maps HTML formatting tags to Slate inline element type names.
+_INLINE_TAGS: dict[str, str] = {
+    "strong": "strong",
+    "b": "strong",
+    "em": "em",
+    "i": "em",
+    "u": "u",
+    "del": "del",
+    "s": "del",
     "sub": "sub",
     "sup": "sup",
 }
@@ -293,16 +302,16 @@ class _SlateParser(HTMLParser):
         super().__init__()
         self.result: list[dict[str, Any]] = []
         self._stack: list[dict[str, Any]] = []
-        self._marks: dict[str, bool] = {}
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in _MARK_TAGS:
-            self._marks[_MARK_TAGS[tag]] = True
+        if tag in _INLINE_TAGS:
+            node: dict[str, Any] = {"type": _INLINE_TAGS[tag], "children": []}
+            self._push(node)
             return
 
         if tag == "a":
             href = dict(attrs).get("href", "")
-            node: dict[str, Any] = {
+            node = {
                 "type": "link",
                 "data": {"url": href},
                 "children": [],
@@ -325,20 +334,11 @@ class _SlateParser(HTMLParser):
             return
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in _MARK_TAGS:
-            mark = _MARK_TAGS[tag]
-            self._marks.pop(mark, None)
-            return
-
-        if tag in ("a", *_BLOCK_TAGS):
+        if tag in _INLINE_TAGS or tag in ("a", *_BLOCK_TAGS):
             self._pop(tag)
 
     def handle_data(self, data: str) -> None:
         text_node: dict[str, Any] = {"text": data}
-        for mark, val in self._marks.items():
-            if val:
-                text_node[mark] = True
-
         if self._stack:
             self._stack[-1]["children"].append(text_node)
         else:
@@ -761,6 +761,214 @@ def _reverse_accordion(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str,
     return result
 
 
+def _plaintext_to_slate(text: str) -> list[dict[str, Any]]:
+    """Wrap plain text in a minimal Slate paragraph."""
+    if not text:
+        return []
+    return [{"type": "p", "children": [{"text": text}]}]
+
+
+def _reverse_quote(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    attrs = block["attributes"]
+    result: dict[str, Any] = {
+        "@type": "quote",
+        "value": _html_to_slate(attrs["html"]),
+        "source": _html_to_slate(attrs["source_html"]),
+        "extra": _html_to_slate(attrs["extra_html"]),
+        "variation": attrs.get("variation", "default"),
+        "reversed": attrs.get("reversed", False),
+    }
+    if attrs.get("position"):
+        result["position"] = attrs["position"]
+    if attrs.get("title_html"):
+        result["title"] = _html_to_slate(attrs["title_html"])
+    if attrs.get("image_url"):
+        result["image"] = _build_href(attrs["image_url"])
+    return result
+
+
+_INT_TO_VOLTO_WIDTHS: dict[int, str] = {1: "one", 2: "two", 3: "three", 4: "four"}
+
+
+_IR_FIELD_TYPE_TO_VOLTO: dict[str, str] = {
+    "form_text_field": "text",
+    "form_textarea_field": "textarea",
+    "form_number_field": "number",
+    "form_email_field": "from",
+    "form_select_field": "select",
+    "form_radio_field": "single_choice",
+    "form_checkbox_field": "multiple_choice",
+    "form_date_field": "date",
+    "form_attachment_field": "attachment",
+    "form_hidden_field": "hidden",
+}
+
+
+def _reverse_statistic(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    preserved = _try_preserve_container(block, ctx)
+    if preserved is not None:
+        return preserved
+
+    attrs = block["attributes"]
+    children = block.get("children", [])
+
+    items: list[dict[str, Any]] = []
+    for child in children:
+        ca = child["attributes"]
+        item: dict[str, Any] = {
+            "@id": child["id"],
+            "value": _plaintext_to_slate(ca["value"]),
+            "label": _plaintext_to_slate(ca.get("label", "")),
+            "info": _plaintext_to_slate(ca.get("info", "")),
+        }
+        if ca.get("link"):
+            item["href"] = ca["link"]
+        if ca.get("prefix"):
+            item["prefix"] = ca["prefix"]
+        if ca.get("suffix"):
+            item["suffix"] = ca["suffix"]
+        items.append(item)
+
+    animation: dict[str, Any] = {}
+    if attrs.get("animation_enabled"):
+        animation = {
+            "enabled": True,
+            "duration": str(attrs.get("animation_duration", 5)),
+            "decimals": str(attrs.get("animation_decimals", 0)),
+        }
+
+    return {
+        "@type": "statistic_block",
+        "horizontal": attrs.get("horizontal", False),
+        "inverted": attrs.get("inverted", False),
+        "size": attrs.get("size", "small"),
+        "widths": _INT_TO_VOLTO_WIDTHS.get(attrs.get("widths", 1), "one"),
+        "animation": animation,
+        "items": items,
+    }
+
+
+def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    preserved = _try_preserve_container(block, ctx)
+    if preserved is not None:
+        return preserved
+
+    attrs = block["attributes"]
+    children = block.get("children", [])
+
+    subblocks: list[dict[str, Any]] = []
+    for child in children:
+        ir_type = child["type"]
+        ca = child["attributes"]
+
+        if ir_type == "rich_text":
+            subblocks.append(
+                {
+                    "id": child["id"],
+                    "field_type": "static_text",
+                    "label": "",
+                    "value": ca.get("html", ""),
+                }
+            )
+            continue
+
+        volto_type = _IR_FIELD_TYPE_TO_VOLTO.get(ir_type, "text")
+        sub: dict[str, Any] = {
+            "id": child["id"],
+            "field_id": child["id"],
+            "field_type": volto_type,
+            "label": ca.get("label", ""),
+        }
+
+        if ir_type == "form_hidden_field":
+            sub["value"] = ca.get("value", "")
+        else:
+            sub["description"] = ca.get("description", "")
+            sub["required"] = ca.get("required", False)
+
+        if ir_type == "form_email_field" and ca.get("use_as_reply_to"):
+            sub["use_as_reply_to"] = True
+
+        if ir_type in (
+            "form_select_field",
+            "form_radio_field",
+            "form_checkbox_field",
+        ):
+            sub["input_values"] = ca.get("options", [])
+
+        subblocks.append(sub)
+
+    return {
+        "@type": "form",
+        "title": attrs.get("title", ""),
+        "description": attrs.get("description", ""),
+        "submit_label": attrs.get("submit_label", "Submit"),
+        "show_cancel": attrs.get("show_cancel", False),
+        "cancel_label": attrs.get("cancel_label", ""),
+        "default_to": attrs.get("recipient_email", ""),
+        "default_subject": attrs.get("subject", ""),
+        "default_from": "noreply@plone.org",
+        "subblocks": subblocks,
+    }
+
+
+def _reverse_tabs(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    preserved = _try_preserve_container(block, ctx)
+    if preserved is not None:
+        return preserved
+
+    attrs = block["attributes"]
+    children = block.get("children", [])
+
+    tab_blocks: dict[str, Any] = {}
+    tab_items: list[str] = []
+
+    for child in children:
+        tab_uid = child["id"]
+        tab_items.append(tab_uid)
+
+        inner_blocks: dict[str, Any] = {}
+        inner_items: list[str] = []
+        for inner_child in child.get("children", []):
+            inner_uid = inner_child["id"]
+            inner_blocks[inner_uid] = _reverse_block(inner_child, ctx)
+            inner_items.append(inner_uid)
+
+        tab_blocks[tab_uid] = {
+            "@type": "tab",
+            "title": child["attributes"]["title"],
+            "blocks": inner_blocks,
+            "blocks_layout": {"items": inner_items},
+        }
+
+    return {
+        "@type": "tabs_block",
+        "title": attrs.get("title", ""),
+        "description": attrs.get("description", ""),
+        "variation": attrs.get("variation", "default"),
+        "hideEmptyTabs": attrs.get("hide_empty_tabs", False),
+        "data": {
+            "blocks": tab_blocks,
+            "blocks_layout": {"items": tab_items},
+        },
+    }
+
+
+def _reverse_pdf_viewer(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    attrs = block["attributes"]
+    return {
+        "@type": "pdf_viewer",
+        "url": attrs["url"],
+        "initialPage": attrs.get("initial_page", 1),
+        "fitPageWidth": attrs.get("fit_page_width", True),
+        "hideToolbar": attrs.get("hide_toolbar", False),
+        "hideNavbar": attrs.get("hide_navbar", False),
+        "disableScroll": attrs.get("disable_scroll", False),
+        "clickToDownload": attrs.get("click_to_download", False),
+        "showPagesPreview": attrs.get("show_pages_preview", False),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Reverse converter dispatch table
 # ---------------------------------------------------------------------------
@@ -783,4 +991,9 @@ _REVERSE_CONVERTERS: dict[str, _ReverseConverterFn] = {
     "carousel": _reverse_carousel,
     "columns": _reverse_columns,
     "accordion": _reverse_accordion,
+    "quote": _reverse_quote,
+    "statistic": _reverse_statistic,
+    "form": _reverse_form,
+    "tabs": _reverse_tabs,
+    "pdf_viewer": _reverse_pdf_viewer,
 }
