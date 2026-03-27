@@ -917,6 +917,8 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
         "default_to": attrs.get("recipient_email", ""),
         "default_subject": attrs.get("subject", ""),
         "default_from": "noreply@plone.org",
+        "send": True,
+        "captcha": "honeypot",
         "subblocks": subblocks,
     }
 
