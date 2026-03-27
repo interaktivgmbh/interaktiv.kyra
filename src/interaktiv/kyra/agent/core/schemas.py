@@ -157,7 +157,7 @@ class HighlightAttributes(BaseModel):
     image_url: str
     title: str
     html: str
-    button_show: bool
+    button_show: bool = True
     button_text: str
     button_link: str
     description_color: HighlightColor | None = None
@@ -322,6 +322,93 @@ class AccordionAttributes(BaseModel):
     filtering: bool
 
 
+# --- Quote ---
+
+
+class QuoteAttributes(BaseModel):
+    html: str
+    source_html: str = ""
+    extra_html: str = ""
+    variation: Literal["default", "testimonial"] = "default"
+    position: Literal["left", "center", "right"] | None = None
+    reversed: bool = False
+    title_html: str = ""
+    image_url: str = ""
+
+
+# --- Statistic ---
+
+
+class StatisticItemAttributes(BaseModel):
+    value: str
+    label: str
+    info: str = ""
+    link: str = ""
+    prefix: str = ""
+    suffix: str = ""
+
+
+class StatisticAttributes(BaseModel):
+    horizontal: bool = False
+    inverted: bool = False
+    size: Literal["mini", "tiny", "small", "large", "huge"] = "small"
+    widths: Annotated[int, Field(ge=1, le=4)] = 1
+    animation_enabled: bool = False
+    animation_duration: float = 5.0
+    animation_decimals: int = 0
+
+
+# --- Form ---
+
+
+class FormFieldAttributes(BaseModel):
+    label: str
+    description: str = ""
+    required: bool = False
+    kind: Literal["text", "textarea", "number", "email", "date", "attachment"]
+    send_copy: bool = False
+
+
+class FormChoiceAttributes(BaseModel):
+    label: str
+    description: str = ""
+    required: bool = False
+    kind: Literal["select", "radio", "checkbox"]
+    options: list[str] = Field(default_factory=list)
+    default: str = ""
+
+
+class FormAttributes(BaseModel):
+    title: str
+    description: str = ""
+    submit_label: str = "Submit"
+    show_cancel: bool = False
+    cancel_label: str = ""
+    recipient_email: str
+    subject: str = ""
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+# --- Tabs ---
+
+
+class TabAttributes(BaseModel):
+    title: str
+
+
+class TabsAttributes(BaseModel):
+    title: str = ""
+    description: str = ""
+    variation: Literal[
+        "default",
+        "accordion",
+        "horizontal-responsive",
+        "carousel-horizontal",
+        "carousel-vertical",
+    ] = "default"
+    hide_empty_tabs: bool = False
+
+
 # ===================================================================
 # Block IR — update schemas
 # ===================================================================
@@ -421,7 +508,8 @@ class HighlightUpdate(BaseModel):
         default=None, description="Body HTML. " + _RICH_TEXT_HTML_DESCRIPTION
     )
     button_show: bool | None = Field(
-        default=None, description="Whether the CTA button is visible."
+        default=None,
+        description="Whether the CTA button is visible. Defaults to true — set to false only if the highlight should have no button.",
     )
     button_text: str | None = Field(default=None, description="CTA button label.")
     button_link: str | None = Field(default=None, description="CTA button destination.")
@@ -537,6 +625,129 @@ class AccordionUpdate(BaseModel):
     filtering: bool | None = Field(default=None, description="Show filter input.")
 
 
+class QuoteUpdate(BaseModel):
+    html: str | None = Field(
+        default=None, description="Quote text HTML. " + _RICH_TEXT_HTML_DESCRIPTION
+    )
+    source_html: str | None = Field(
+        default=None,
+        description="Attribution / source HTML. " + _RICH_TEXT_HTML_DESCRIPTION,
+    )
+    extra_html: str | None = Field(
+        default=None,
+        description="Extra context HTML. " + _RICH_TEXT_HTML_DESCRIPTION,
+    )
+    variation: Literal["default", "testimonial"] | None = Field(
+        default=None, description="Visual variation."
+    )
+    position: Literal["left", "center", "right"] | None = Field(
+        default=None, description="Quote alignment."
+    )
+    reversed: bool | None = Field(
+        default=None, description="Show source before quote text."
+    )
+    title_html: str | None = Field(
+        default=None,
+        description="Testimonial title HTML (e.g. person's role). "
+        + _RICH_TEXT_HTML_DESCRIPTION,
+    )
+    image_url: str | None = Field(default=None, description="Testimonial image URL.")
+
+
+class StatisticItemUpdate(BaseModel):
+    value: str | None = Field(default=None, description="The number or metric.")
+    label: str | None = Field(default=None, description="Label below the value.")
+    info: str | None = Field(default=None, description="Extra info text.")
+    link: str | None = Field(default=None, description="Link URL.")
+    prefix: str | None = Field(default=None, description="Text before animated value.")
+    suffix: str | None = Field(default=None, description="Text after animated value.")
+
+
+class StatisticUpdate(BaseModel):
+    horizontal: bool | None = Field(default=None, description="Horizontal layout.")
+    inverted: bool | None = Field(default=None, description="Dark background.")
+    size: Literal["mini", "tiny", "small", "large", "huge"] | None = Field(
+        default=None, description="Display size."
+    )
+    widths: Annotated[int, Field(ge=1, le=4)] | None = Field(
+        default=None, description="Number of columns (1-4)."
+    )
+    animation_enabled: bool | None = Field(
+        default=None, description="Enable count-up animation."
+    )
+    animation_duration: float | None = Field(
+        default=None, description="Animation duration in seconds."
+    )
+    animation_decimals: int | None = Field(
+        default=None, description="Decimal places in animated number."
+    )
+
+
+class FormFieldUpdate(BaseModel):
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+    kind: (
+        Literal["text", "textarea", "number", "email", "date", "attachment"] | None
+    ) = Field(default=None, description="Input type.")
+    send_copy: bool | None = Field(
+        default=None,
+        description="Send a copy of the submission to this email address (only for email fields).",
+    )
+
+
+class FormChoiceUpdate(BaseModel):
+    label: str | None = Field(default=None, description="Field label.")
+    description: str | None = Field(default=None, description="Help text.")
+    required: bool | None = Field(default=None, description="Required field.")
+    kind: Literal["select", "radio", "checkbox"] | None = Field(
+        default=None,
+        description="Choice presentation: select (dropdown), radio, or checkbox.",
+    )
+    options: list[str] | None = Field(
+        default=None, description="Choice options (replaces entire list)."
+    )
+    default: str | None = Field(default=None, description="Pre-selected option.")
+
+
+class FormUpdate(BaseModel):
+    title: str | None = Field(default=None, description="Form title.")
+    description: str | None = Field(default=None, description="Form description.")
+    submit_label: str | None = Field(default=None, description="Submit button label.")
+    show_cancel: bool | None = Field(default=None, description="Show cancel button.")
+    cancel_label: str | None = Field(default=None, description="Cancel button label.")
+    recipient_email: str | None = Field(
+        default=None, description="Recipient email address."
+    )
+    subject: str | None = Field(default=None, description="Email subject line.")
+    metadata: dict[str, str] | None = Field(
+        default=None,
+        description="Hidden key-value pairs submitted with the form (replaces entire dict).",
+    )
+
+
+class TabUpdate(BaseModel):
+    title: str | None = Field(default=None, description="Tab heading.")
+
+
+class TabsUpdate(BaseModel):
+    title: str | None = Field(default=None, description="Block title.")
+    description: str | None = Field(default=None, description="Block description.")
+    variation: (
+        Literal[
+            "default",
+            "accordion",
+            "horizontal-responsive",
+            "carousel-horizontal",
+            "carousel-vertical",
+        ]
+        | None
+    ) = Field(default=None, description="Display variation.")
+    hide_empty_tabs: bool | None = Field(
+        default=None, description="Hide tabs with no content."
+    )
+
+
 class MetadataUpdate(BaseModel):
     title: str | None = Field(default=None, description="Page title.")
     description: str | None = Field(default=None, description="Page summary.")
@@ -571,6 +782,14 @@ BLOCK_TYPES: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "carousel": (CarouselAttributes, CarouselUpdate),
     "columns": (ColumnsAttributes, ColumnsUpdate),
     "accordion": (AccordionAttributes, AccordionUpdate),
+    "quote": (QuoteAttributes, QuoteUpdate),
+    "statistic_item": (StatisticItemAttributes, StatisticItemUpdate),
+    "statistic": (StatisticAttributes, StatisticUpdate),
+    "form_field": (FormFieldAttributes, FormFieldUpdate),
+    "form_choice": (FormChoiceAttributes, FormChoiceUpdate),
+    "form": (FormAttributes, FormUpdate),
+    "tab": (TabAttributes, TabUpdate),
+    "tabs": (TabsAttributes, TabsUpdate),
 }
 
 # Types that should not get create/update tools (read-only children).
@@ -672,6 +891,14 @@ class TableBlock(BaseModel):
     attributes: TableAttributes
 
 
+class QuoteBlock(BaseModel):
+    type: Literal["quote"]
+    id: str
+    path: str
+    name: str
+    attributes: QuoteAttributes
+
+
 # --- Container child blocks ---
 
 
@@ -699,6 +926,30 @@ class CarouselItemBlock(BaseModel):
     attributes: CarouselItemAttributes
 
 
+class StatisticItemBlock(BaseModel):
+    type: Literal["statistic_item"]
+    id: str
+    path: str
+    name: str
+    attributes: StatisticItemAttributes
+
+
+class FormFieldBlock(BaseModel):
+    type: Literal["form_field"]
+    id: str
+    path: str
+    name: str
+    attributes: FormFieldAttributes
+
+
+class FormChoiceBlock(BaseModel):
+    type: Literal["form_choice"]
+    id: str
+    path: str
+    name: str
+    attributes: FormChoiceAttributes
+
+
 class ColumnBlock(BaseModel):
     type: Literal["column"]
     id: str
@@ -717,7 +968,22 @@ class AccordionPanelBlock(BaseModel):
     children: list[Block]
 
 
+class TabBlock(BaseModel):
+    type: Literal["tab"]
+    id: str
+    path: str
+    name: str
+    attributes: TabAttributes
+    children: list[Block]
+
+
 # --- Container blocks ---
+
+
+FormChild = Annotated[
+    FormFieldBlock | FormChoiceBlock | RichTextBlock,
+    Field(discriminator="type"),
+]
 
 
 class ListingBlock(BaseModel):
@@ -772,6 +1038,33 @@ class AccordionBlock(BaseModel):
     children: list[AccordionPanelBlock]
 
 
+class StatisticBlock(BaseModel):
+    type: Literal["statistic"]
+    id: str
+    path: str
+    name: str
+    attributes: StatisticAttributes
+    children: list[StatisticItemBlock]
+
+
+class FormBlock(BaseModel):
+    type: Literal["form"]
+    id: str
+    path: str
+    name: str
+    attributes: FormAttributes
+    children: list[FormChild]
+
+
+class TabsBlock(BaseModel):
+    type: Literal["tabs"]
+    id: str
+    path: str
+    name: str
+    attributes: TabsAttributes
+    children: list[TabBlock]
+
+
 # ===================================================================
 # Block union & layout
 # ===================================================================
@@ -788,16 +1081,21 @@ type Block = Annotated[
     | TeaserBlock
     | HighlightBlock
     | TableBlock
+    | QuoteBlock
     | ListingBlock
     | SliderBlock
     | CarouselBlock
     | ColumnsBlock
-    | AccordionBlock,
+    | AccordionBlock
+    | StatisticBlock
+    | FormBlock
+    | TabsBlock,
     Field(discriminator="type"),
 ]
 
 ColumnBlock.model_rebuild()
 AccordionPanelBlock.model_rebuild()
+TabBlock.model_rebuild()
 
 
 class Layout(RootModel[list[Block]]):
@@ -826,6 +1124,14 @@ BLOCK_MODELS: dict[str, type[BaseModel]] = {
     "carousel": CarouselBlock,
     "columns": ColumnsBlock,
     "accordion": AccordionBlock,
+    "quote": QuoteBlock,
+    "statistic_item": StatisticItemBlock,
+    "statistic": StatisticBlock,
+    "form_field": FormFieldBlock,
+    "form_choice": FormChoiceBlock,
+    "form": FormBlock,
+    "tab": TabBlock,
+    "tabs": TabsBlock,
 }
 
 
@@ -973,6 +1279,17 @@ class Site(ABC):
         *,
         path: str,
         name: str,
+    ) -> Result: ...
+
+    @abstractmethod
+    async def swap_elements(
+        self,
+        page: str,
+        *,
+        path_a: str,
+        name_a: str,
+        path_b: str,
+        name_b: str,
     ) -> Result: ...
 
     @abstractmethod

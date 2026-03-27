@@ -186,29 +186,21 @@ class StatisticAttributes(BaseModel):
     animation_decimals: int = 0
 
 
-class FormTextFieldAttributes(BaseModel):
+class FormFieldAttributes(BaseModel):
     label: str
     description: str = ""
     required: bool = False
+    kind: Literal["text", "textarea", "number", "email", "date", "attachment"]
+    send_copy: bool = False
 
 
-class FormEmailFieldAttributes(BaseModel):
+class FormChoiceAttributes(BaseModel):
     label: str
     description: str = ""
     required: bool = False
-    use_as_reply_to: bool = False
-
-
-class FormSelectFieldAttributes(BaseModel):
-    label: str
-    description: str = ""
-    required: bool = False
+    kind: Literal["select", "radio", "checkbox"]
     options: list[str] = Field(default_factory=list)
-
-
-class FormHiddenFieldAttributes(BaseModel):
-    label: str
-    value: str
+    default: str = ""
 
 
 class FormAttributes(BaseModel):
@@ -217,8 +209,9 @@ class FormAttributes(BaseModel):
     submit_label: str = "Submit"
     show_cancel: bool = False
     cancel_label: str = ""
-    recipient_email: str = ""
+    recipient_email: str
     subject: str = ""
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class TabAttributes(BaseModel):
@@ -230,17 +223,6 @@ class TabsAttributes(BaseModel):
     description: str = ""
     variation: str = "default"
     hide_empty_tabs: bool = False
-
-
-class PdfViewerAttributes(BaseModel):
-    url: str
-    initial_page: int = 1
-    fit_page_width: bool = True
-    hide_toolbar: bool = False
-    hide_navbar: bool = False
-    disable_scroll: bool = False
-    click_to_download: bool = False
-    show_pages_preview: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -342,14 +324,6 @@ class QuoteBlock(BaseModel):
     path: str
     name: str
     attributes: QuoteAttributes
-
-
-class PdfViewerBlock(BaseModel):
-    type: Literal["pdf_viewer"]
-    id: str
-    path: str
-    name: str
-    attributes: PdfViewerAttributes
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +490,6 @@ type Block = Annotated[
     | HighlightBlock
     | TableBlock
     | QuoteBlock
-    | PdfViewerBlock
     | SliderBlock
     | CarouselBlock
     | ColumnsBlock

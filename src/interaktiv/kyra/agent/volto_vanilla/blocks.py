@@ -28,11 +28,9 @@ from interaktiv.kyra.agent.volto_vanilla.schema import (
     DividerBlock,
     FormAttributes,
     FormBlock,
-    FormEmailFieldAttributes,
+    FormFieldAttributes,
     FormFieldBlock,
-    FormHiddenFieldAttributes,
-    FormSelectFieldAttributes,
-    FormTextFieldAttributes,
+    FormChoiceAttributes,
     HeadingAttributes,
     HeadingBlock,
     HighlightAttributes,
@@ -42,8 +40,6 @@ from interaktiv.kyra.agent.volto_vanilla.schema import (
     ImageBlock,
     ImageSize,
     InnerAlignment,
-    PdfViewerAttributes,
-    PdfViewerBlock,
     QuoteAttributes,
     QuoteBlock,
     RichTextAttributes,
@@ -601,172 +597,60 @@ class StatisticPatchAttributes(PatchAttributes):
     )
 
 
-class FormTextFieldCreateAttributes(CreateAttributes):
-    """Text input form field."""
+class FormFieldCreateAttributes(CreateAttributes):
+    """Form input field (text, textarea, number, email, date, or attachment)."""
 
     label: str = Field(description="Field label.")
     description: str = Field(default="", description="Help text.")
     required: bool = Field(default=False, description="Required field.")
-
-
-class FormTextFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for text form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-
-
-class FormTextareaFieldCreateAttributes(CreateAttributes):
-    """Multiline text form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-
-
-class FormTextareaFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for textarea form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-
-
-class FormNumberFieldCreateAttributes(CreateAttributes):
-    """Number input form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-
-
-class FormNumberFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for number form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-
-
-class FormEmailFieldCreateAttributes(CreateAttributes):
-    """Email input form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-    use_as_reply_to: bool = Field(default=False, description="Use as reply-to address.")
-
-
-class FormEmailFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for email form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-    use_as_reply_to: bool | None = Field(
-        default=None, description="Use as reply-to address."
+    kind: Literal["text", "textarea", "number", "email", "date", "attachment"] = Field(
+        description="Input type."
+    )
+    send_copy: bool = Field(
+        default=False,
+        description="Use this email as the reply-to address (only for email fields).",
     )
 
 
-class FormSelectFieldCreateAttributes(CreateAttributes):
-    """Dropdown select form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-    options: list[str] = Field(description="Dropdown options.")
-
-
-class FormSelectFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for select form fields."""
+class FormFieldPatchAttributes(PatchAttributes):
+    """Patch attributes for form input fields."""
 
     label: str | None = Field(default=None, description="Field label.")
     description: str | None = Field(default=None, description="Help text.")
     required: bool | None = Field(default=None, description="Required field.")
-    options: list[str] | None = Field(default=None, description="Dropdown options.")
+    kind: (
+        Literal["text", "textarea", "number", "email", "date", "attachment"] | None
+    ) = Field(default=None, description="Input type.")
+    send_copy: bool | None = Field(
+        default=None,
+        description="Use this email as the reply-to address (only for email fields).",
+    )
 
 
-class FormRadioFieldCreateAttributes(CreateAttributes):
-    """Radio button form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-    options: list[str] = Field(description="Radio options.")
-
-
-class FormRadioFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for radio form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-    options: list[str] | None = Field(default=None, description="Radio options.")
-
-
-class FormCheckboxFieldCreateAttributes(CreateAttributes):
-    """Checkbox group form field."""
+class FormChoiceCreateAttributes(CreateAttributes):
+    """Choice form field (dropdown, radio, or checkbox)."""
 
     label: str = Field(description="Field label.")
     description: str = Field(default="", description="Help text.")
     required: bool = Field(default=False, description="Required field.")
-    options: list[str] = Field(default_factory=list, description="Checkbox options.")
+    kind: Literal["select", "radio", "checkbox"] = Field(
+        description="Presentation: 'select' (dropdown), 'radio' (single choice), 'checkbox' (multiple choice)."
+    )
+    options: list[str] = Field(default_factory=list, description="Choice options.")
+    default: str = Field(default="", description="Pre-selected option.")
 
 
-class FormCheckboxFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for checkbox form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-    options: list[str] | None = Field(default=None, description="Checkbox options.")
-
-
-class FormDateFieldCreateAttributes(CreateAttributes):
-    """Date picker form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-
-
-class FormDateFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for date form fields."""
+class FormChoicePatchAttributes(PatchAttributes):
+    """Patch attributes for choice form fields."""
 
     label: str | None = Field(default=None, description="Field label.")
     description: str | None = Field(default=None, description="Help text.")
     required: bool | None = Field(default=None, description="Required field.")
-
-
-class FormAttachmentFieldCreateAttributes(CreateAttributes):
-    """File attachment form field."""
-
-    label: str = Field(description="Field label.")
-    description: str = Field(default="", description="Help text.")
-    required: bool = Field(default=False, description="Required field.")
-
-
-class FormAttachmentFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for attachment form fields."""
-
-    label: str | None = Field(default=None, description="Field label.")
-    description: str | None = Field(default=None, description="Help text.")
-    required: bool | None = Field(default=None, description="Required field.")
-
-
-class FormHiddenFieldCreateAttributes(CreateAttributes):
-    """Hidden form field."""
-
-    label: str = Field(description="Field name/identifier.")
-    value: str = Field(description="Hidden value.")
-
-
-class FormHiddenFieldPatchAttributes(PatchAttributes):
-    """Patch attributes for hidden form fields."""
-
-    label: str | None = Field(default=None, description="Field name/identifier.")
-    value: str | None = Field(default=None, description="Hidden value.")
+    kind: Literal["select", "radio", "checkbox"] | None = Field(
+        default=None, description="Presentation: 'select', 'radio', or 'checkbox'."
+    )
+    options: list[str] | None = Field(default=None, description="Choice options.")
+    default: str | None = Field(default=None, description="Pre-selected option.")
 
 
 class FormCreateAttributes(CreateAttributes):
@@ -777,8 +661,12 @@ class FormCreateAttributes(CreateAttributes):
     submit_label: str = Field(default="Submit", description="Submit button label.")
     show_cancel: bool = Field(default=False, description="Show cancel button.")
     cancel_label: str = Field(default="", description="Cancel button label.")
-    recipient_email: str = Field(default="", description="Recipient email address.")
+    recipient_email: str = Field(description="Recipient email address.")
     subject: str = Field(default="", description="Email subject line.")
+    metadata: dict[str, str] = Field(
+        default_factory=dict,
+        description="Hidden key-value pairs submitted with the form.",
+    )
 
 
 class FormPatchAttributes(PatchAttributes):
@@ -793,6 +681,10 @@ class FormPatchAttributes(PatchAttributes):
         default=None, description="Recipient email address."
     )
     subject: str | None = Field(default=None, description="Email subject line.")
+    metadata: dict[str, str] | None = Field(
+        default=None,
+        description="Hidden key-value pairs submitted with the form (replaces entire dict).",
+    )
 
 
 class TabCreateAttributes(CreateAttributes):
@@ -841,46 +733,6 @@ class TabsPatchAttributes(PatchAttributes):
     ) = Field(default=None, description="Display variation.")
     hide_empty_tabs: bool | None = Field(
         default=None, description="Hide tabs with no content."
-    )
-
-
-class PdfViewerCreateAttributes(CreateAttributes):
-    """Embedded PDF viewer."""
-
-    url: str = Field(description="PDF file URL or path.")
-    initial_page: int = Field(default=1, description="Starting page number.")
-    fit_page_width: bool = Field(
-        default=True, description="Scale to fit container width."
-    )
-    hide_toolbar: bool = Field(default=False, description="Hide PDF toolbar.")
-    hide_navbar: bool = Field(default=False, description="Hide navigation bar.")
-    disable_scroll: bool = Field(default=False, description="Disable page scrolling.")
-    click_to_download: bool = Field(
-        default=False, description="Enable click-to-download."
-    )
-    show_pages_preview: bool = Field(
-        default=False, description="Show thumbnail page previews."
-    )
-
-
-class PdfViewerPatchAttributes(PatchAttributes):
-    """Patch attributes for PDF viewer blocks."""
-
-    url: str | None = Field(default=None, description="PDF file URL or path.")
-    initial_page: int | None = Field(default=None, description="Starting page number.")
-    fit_page_width: bool | None = Field(
-        default=None, description="Scale to fit container width."
-    )
-    hide_toolbar: bool | None = Field(default=None, description="Hide PDF toolbar.")
-    hide_navbar: bool | None = Field(default=None, description="Hide navigation bar.")
-    disable_scroll: bool | None = Field(
-        default=None, description="Disable page scrolling."
-    )
-    click_to_download: bool | None = Field(
-        default=None, description="Enable click-to-download."
-    )
-    show_pages_preview: bool | None = Field(
-        default=None, description="Show thumbnail page previews."
     )
 
 
@@ -1112,94 +964,22 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "Patch attributes on an existing `statistic` container. Only provided fields are changed.",
     ),
     BlockSpec(
-        "form_text_field",
+        "form_field",
         FormFieldBlock,
-        FormTextFieldAttributes,
-        FormTextFieldCreateAttributes,
-        FormTextFieldPatchAttributes,
-        "Create a `form_text_field` inside a form.",
-        "Patch attributes on an existing `form_text_field`. Only provided fields are changed.",
+        FormFieldAttributes,
+        FormFieldCreateAttributes,
+        FormFieldPatchAttributes,
+        "Create a `form_field` (text, textarea, number, email, date, or attachment) inside a form. Set `kind` accordingly.",
+        "Patch attributes on an existing `form_field`. Only provided fields are changed.",
     ),
     BlockSpec(
-        "form_textarea_field",
+        "form_choice",
         FormFieldBlock,
-        FormTextFieldAttributes,
-        FormTextareaFieldCreateAttributes,
-        FormTextareaFieldPatchAttributes,
-        "Create a `form_textarea_field` inside a form.",
-        "Patch attributes on an existing `form_textarea_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_number_field",
-        FormFieldBlock,
-        FormTextFieldAttributes,
-        FormNumberFieldCreateAttributes,
-        FormNumberFieldPatchAttributes,
-        "Create a `form_number_field` inside a form.",
-        "Patch attributes on an existing `form_number_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_email_field",
-        FormFieldBlock,
-        FormEmailFieldAttributes,
-        FormEmailFieldCreateAttributes,
-        FormEmailFieldPatchAttributes,
-        "Create a `form_email_field` inside a form.",
-        "Patch attributes on an existing `form_email_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_select_field",
-        FormFieldBlock,
-        FormSelectFieldAttributes,
-        FormSelectFieldCreateAttributes,
-        FormSelectFieldPatchAttributes,
-        "Create a `form_select_field` (dropdown) inside a form.",
-        "Patch attributes on an existing `form_select_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_radio_field",
-        FormFieldBlock,
-        FormSelectFieldAttributes,
-        FormRadioFieldCreateAttributes,
-        FormRadioFieldPatchAttributes,
-        "Create a `form_radio_field` inside a form.",
-        "Patch attributes on an existing `form_radio_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_checkbox_field",
-        FormFieldBlock,
-        FormSelectFieldAttributes,
-        FormCheckboxFieldCreateAttributes,
-        FormCheckboxFieldPatchAttributes,
-        "Create a `form_checkbox_field` inside a form.",
-        "Patch attributes on an existing `form_checkbox_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_date_field",
-        FormFieldBlock,
-        FormTextFieldAttributes,
-        FormDateFieldCreateAttributes,
-        FormDateFieldPatchAttributes,
-        "Create a `form_date_field` inside a form.",
-        "Patch attributes on an existing `form_date_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_attachment_field",
-        FormFieldBlock,
-        FormTextFieldAttributes,
-        FormAttachmentFieldCreateAttributes,
-        FormAttachmentFieldPatchAttributes,
-        "Create a `form_attachment_field` inside a form.",
-        "Patch attributes on an existing `form_attachment_field`. Only provided fields are changed.",
-    ),
-    BlockSpec(
-        "form_hidden_field",
-        FormFieldBlock,
-        FormHiddenFieldAttributes,
-        FormHiddenFieldCreateAttributes,
-        FormHiddenFieldPatchAttributes,
-        "Create a `form_hidden_field` inside a form.",
-        "Patch attributes on an existing `form_hidden_field`. Only provided fields are changed.",
+        FormChoiceAttributes,
+        FormChoiceCreateAttributes,
+        FormChoicePatchAttributes,
+        "Create a `form_choice` (dropdown, radio, or checkbox) inside a form. Set `kind` to 'select', 'radio', or 'checkbox'.",
+        "Patch attributes on an existing `form_choice`. Only provided fields are changed.",
     ),
     BlockSpec(
         "form",
@@ -1228,15 +1008,6 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "Create a `tabs` container.",
         "Patch attributes on an existing `tabs` container. Only provided fields are changed.",
     ),
-    BlockSpec(
-        "pdf_viewer",
-        PdfViewerBlock,
-        PdfViewerAttributes,
-        PdfViewerCreateAttributes,
-        PdfViewerPatchAttributes,
-        "Create a `pdf_viewer` element.",
-        "Patch attributes on an existing `pdf_viewer` element. Only provided fields are changed.",
-    ),
 )
 
 BLOCK_SPECS_BY_TYPE: dict[str, BlockSpec] = {
@@ -1253,16 +1024,8 @@ CHILD_TYPES: dict[str, str] = {
 }
 
 FORM_FIELD_TYPES = {
-    "form_text_field",
-    "form_textarea_field",
-    "form_number_field",
-    "form_email_field",
-    "form_select_field",
-    "form_radio_field",
-    "form_checkbox_field",
-    "form_date_field",
-    "form_attachment_field",
-    "form_hidden_field",
+    "form_field",
+    "form_choice",
 }
 
 RESTRICTED_CHILD_TYPES: dict[str, set[str]] = {

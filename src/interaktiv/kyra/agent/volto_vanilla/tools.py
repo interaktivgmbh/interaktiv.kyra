@@ -255,7 +255,24 @@ def make_delete_tools(engine: Engine) -> list[BaseTool]:
 
 
 def make_move_tools(engine: Engine) -> list[BaseTool]:
-    """move_element."""
+    """move_element, swap_elements."""
+
+    @tool
+    def swap_elements(
+        path_a: ContainerPath,
+        name_a: ElementName,
+        path_b: ContainerPath,
+        name_b: ElementName,
+    ) -> str:
+        """Swap the positions of two elements across any containers."""
+        return _result_to_str(
+            engine.swap_elements(
+                path_a=path_a,
+                name_a=name_a,
+                path_b=path_b,
+                name_b=name_b,
+            )
+        )
 
     @tool
     def move_element(
@@ -280,7 +297,7 @@ def make_move_tools(engine: Engine) -> list[BaseTool]:
             )
         )
 
-    return [move_element]
+    return [swap_elements, move_element]
 
 
 def make_create_tools(engine: Engine) -> list[BaseTool]:

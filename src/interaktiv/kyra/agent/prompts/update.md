@@ -41,9 +41,13 @@ Eine Seite ist ein Baum aus Blöcken. Jeder Block hat einen Typ, einen Namen (ei
 
 **teaser** — Eine Vorschau-Karte, die auf einen anderen Inhalt verlinkt. `link` ist das Ziel. `title` und `description` beschreiben den verlinkten Inhalt. `head_title` ist eine optionale Dachzeile über dem Titel (z. B. eine Kategorie). `preview_image` zeigt ein Vorschaubild. `overwrite` bestimmt, ob die hier eingetragenen Texte Vorrang vor den Metadaten des verlinkten Inhalts haben.
 
-**highlight** — Eine hervorgehobene Karte mit optionalem Bild und CTA-Button. `title` ist die Hauptüberschrift, `html` der Fließtext darunter (gleiche HTML-Regeln wie bei rich_text). `image_url` zeigt ein Bild neben dem Text. `button_text` und `button_link` definieren Beschriftung und Ziel des Buttons. Ein leerer `button_text` blendet den Button aus.
+**highlight** — Eine hervorgehobene Karte mit optionalem Bild und CTA-Button. `title` ist die Hauptüberschrift, `html` der Fließtext darunter (gleiche HTML-Regeln wie bei rich_text). `image_url` zeigt ein Bild neben dem Text. `button_show` steuert, ob der Button sichtbar ist. `button_text` und `button_link` definieren Beschriftung und Ziel des Buttons. `description_color` setzt eine Hintergrundfarbe für den Beschreibungsbereich: `light-blue`, `dark-teal`, `yellow`, `light-green` oder `olive`.
 
 **table** — Eine Datentabelle. `html` enthält die Tabellenstruktur als HTML (`<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`). Die Darstellung wird über boolesche Flags gesteuert: `minimal_style` (reduzierter Stil), `show_cell_borders` (Zellenrahmen), `compact` (weniger Zeilenabstand), `fixed_column_width` (gleichmäßige Spaltenbreiten), `hide_headers` (Kopfzeile ausblenden), `inverted_colors` (dunkler Hintergrund), `striped_rows` (abwechselnd gefärbte Zeilen).
+
+**quote** — Ein Zitat-Block mit Quellenangabe. `html` enthält den Zitattext (gleiche HTML-Regeln wie bei rich_text). `source_html` ist die Quellenangabe, `extra_html` enthält optionalen Zusatzkontext. `variation` wählt zwischen `default` und `testimonial`. `position` steuert die Ausrichtung: `left`, `center`, `right`. `reversed` kehrt die Reihenfolge um. Bei `testimonial`: `title_html` für die Rolle der Person, `image_url` für ein Porträtbild.
+
+**pdf_viewer** — Bettet eine PDF-Datei direkt in die Seite ein. `url` ist die Adresse der PDF-Datei. `initial_page` bestimmt die Startseite. `fit_page_width` skaliert das PDF auf die Containerbreite. Weitere Optionen: `hide_toolbar`, `hide_navbar`, `disable_scroll`, `click_to_download`, `show_pages_preview`.
 
 ### Layout-Container
 
@@ -62,6 +66,18 @@ Enthält **carousel_item**-Elemente. Jedes Item hat `title`, `description`, opti
 **accordion** — Ein Akkordeon, bei dem Inhalte hinter aufklappbaren Panels versteckt sind. `headline` und `title` beschreiben den Akkordeon-Bereich. `exclusive` sorgt dafür, dass maximal ein Panel gleichzeitig geöffnet sein kann. `collapsed` bestimmt, ob alle Panels beim Laden der Seite zugeklappt sind. `right_arrows` positioniert die Auf-/Zuklapp-Pfeile rechts statt links. `filtering` aktiviert eine Filterfunktion.
 
 Enthält **accordion_panel**-Elemente. Jedes Panel hat einen `title` (die sichtbare Zeile, auf die man klickt). Innerhalb eines Panels können beliebige Inhaltsblöcke stehen.
+
+**statistic** — Eine Kennzahlen-Anzeige für KPIs und Metriken. `horizontal`, `inverted`, `size` (mini/tiny/small/large/huge), `widths` (1–4 Spalten). Animation: `animation_enabled`, `animation_duration`, `animation_decimals`.
+
+Enthält **statistic_item**-Elemente. Jedes Item hat `value` (Kennzahl), `label` (Beschriftung), `info` (Zusatztext), `link`, `prefix`, `suffix`.
+
+**tabs** — Ein Tab-Container. `title`, `description`, `variation` (default/accordion/horizontal-responsive/carousel-horizontal/carousel-vertical), `hide_empty_tabs`.
+
+Enthält **tab**-Elemente mit `title`. Innerhalb eines Tabs können beliebige Inhaltsblöcke stehen.
+
+**form** — Ein Formular. `title`, `description`, `submit_label`, `show_cancel`, `cancel_label`, `recipient_email`, `subject`.
+
+Enthält Formularfelder: **form_field** (`label`, `description`, `required`, `kind`: text/textarea/number/email/date/attachment, `send_copy` bei email) und **form_choice** (`label`, `description`, `required`, `kind`: select/radio/checkbox, `options`, `default`). Versteckte Felder als `metadata: dict[str, str]` im form-Container. Dazwischen können **rich_text**-Blöcke für erklärende Texte stehen.
 
 ## Seitenmetadaten
 

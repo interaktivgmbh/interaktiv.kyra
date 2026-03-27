@@ -888,18 +888,30 @@ def _convert_statistic(
     }
 
 
+_VOLTO_FIELD_KIND: dict[str, str] = {
+    "text": "text",
+    "textarea": "textarea",
+    "number": "number",
+    "from": "email",
+    "date": "date",
+    "attachment": "attachment",
+    "select": "select",
+    "single_choice": "radio",
+    "multiple_choice": "checkbox",
+    "checkbox": "checkbox",
+}
+
 _VOLTO_FIELD_TYPE_TO_IR: dict[str, str] = {
-    "text": "form_text_field",
-    "textarea": "form_textarea_field",
-    "number": "form_number_field",
-    "from": "form_email_field",
-    "select": "form_select_field",
-    "single_choice": "form_radio_field",
-    "multiple_choice": "form_checkbox_field",
-    "checkbox": "form_checkbox_field",
-    "date": "form_date_field",
-    "attachment": "form_attachment_field",
-    "hidden": "form_hidden_field",
+    "text": "form_field",
+    "textarea": "form_field",
+    "number": "form_field",
+    "from": "form_field",
+    "select": "form_choice",
+    "single_choice": "form_choice",
+    "multiple_choice": "form_choice",
+    "checkbox": "form_choice",
+    "date": "form_field",
+    "attachment": "form_field",
     "static_text": "rich_text",
 }
 
@@ -916,9 +928,15 @@ def _convert_form(
     child_path = _child_path(path, container_name)
 
     children: list[dict[str, Any]] = []
+    metadata: dict[str, str] = {}
     for sub in raw.get("subblocks", []):
         field_type = sub.get("field_type", "text")
-        ir_type = _VOLTO_FIELD_TYPE_TO_IR.get(field_type, "form_text_field")
+
+        if field_type == "hidden":
+            metadata[sub.get("label", "")] = sub.get("value", "")
+            continue
+
+        ir_type = _VOLTO_FIELD_TYPE_TO_IR.get(field_type, "form_field")
 
         if ir_type == "rich_text":
             children.append(
@@ -934,23 +952,18 @@ def _convert_form(
 
         attrs: dict[str, Any] = {
             "label": sub.get("label", ""),
+            "description": sub.get("description", ""),
+            "required": sub.get("required", False),
         }
 
-        if ir_type == "form_hidden_field":
-            attrs["value"] = sub.get("value", "")
-        else:
-            attrs["description"] = sub.get("description", "")
-            attrs["required"] = sub.get("required", False)
+        if ir_type == "form_field":
+            attrs["kind"] = _VOLTO_FIELD_KIND.get(field_type, "text")
+            attrs["send_copy"] = sub.get("use_as_reply_to", False)
 
-        if ir_type == "form_email_field":
-            attrs["use_as_reply_to"] = sub.get("use_as_reply_to", False)
-
-        if ir_type in (
-            "form_select_field",
-            "form_radio_field",
-            "form_checkbox_field",
-        ):
+        if ir_type == "form_choice":
+            attrs["kind"] = _VOLTO_FIELD_KIND.get(field_type, "select")
             attrs["options"] = sub.get("input_values", [])
+            attrs["default"] = sub.get("default_value", "")
 
         children.append(
             {
@@ -975,6 +988,7 @@ def _convert_form(
             "cancel_label": raw.get("cancel_label", ""),
             "recipient_email": raw.get("default_to", ""),
             "subject": raw.get("default_subject", ""),
+            "metadata": metadata,
         },
         "children": children,
     }
@@ -1038,32 +1052,6 @@ def _convert_tabs(
     }
 
 
-def _convert_pdf_viewer(
-    uid: str,
-    raw: dict[str, Any],
-    path: str,
-    page_title: str,
-    page_description: str,
-    names: _NameCounter,
-) -> dict[str, Any]:
-    return {
-        "type": "pdf_viewer",
-        "id": uid,
-        "path": path,
-        "name": names.next("pdf_viewer"),
-        "attributes": {
-            "url": raw.get("url", ""),
-            "initial_page": raw.get("initialPage", 1),
-            "fit_page_width": raw.get("fitPageWidth", True),
-            "hide_toolbar": raw.get("hideToolbar", False),
-            "hide_navbar": raw.get("hideNavbar", False),
-            "disable_scroll": raw.get("disableScroll", False),
-            "click_to_download": raw.get("clickToDownload", False),
-            "show_pages_preview": raw.get("showPagesPreview", False),
-        },
-    }
-
-
 # ---------------------------------------------------------------------------
 # Converter dispatch table
 # ---------------------------------------------------------------------------
@@ -1094,5 +1082,4 @@ _CONVERTERS: dict[str, _ConverterFn] = {
     "statistic_block": _convert_statistic,
     "form": _convert_form,
     "tabs_block": _convert_tabs,
-    "pdf_viewer": _convert_pdf_viewer,
 }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import string
+from uuid import uuid4 as _uuid4
 from collections.abc import Callable
 from html.parser import HTMLParser
 from typing import Any
@@ -791,16 +792,15 @@ _INT_TO_VOLTO_WIDTHS: dict[int, str] = {1: "one", 2: "two", 3: "three", 4: "four
 
 
 _IR_FIELD_TYPE_TO_VOLTO: dict[str, str] = {
-    "form_text_field": "text",
-    "form_textarea_field": "textarea",
-    "form_number_field": "number",
-    "form_email_field": "from",
-    "form_select_field": "select",
-    "form_radio_field": "single_choice",
-    "form_checkbox_field": "multiple_choice",
-    "form_date_field": "date",
-    "form_attachment_field": "attachment",
-    "form_hidden_field": "hidden",
+    "form_field:text": "text",
+    "form_field:textarea": "textarea",
+    "form_field:number": "number",
+    "form_field:email": "from",
+    "form_field:date": "date",
+    "form_field:attachment": "attachment",
+    "form_choice:select": "select",
+    "form_choice:radio": "single_choice",
+    "form_choice:checkbox": "multiple_choice",
 }
 
 
@@ -872,7 +872,10 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
             )
             continue
 
-        volto_type = _IR_FIELD_TYPE_TO_VOLTO.get(ir_type, "text")
+        lookup_key = ir_type
+        if ir_type in ("form_field", "form_choice"):
+            lookup_key = f"{ir_type}:{ca.get('kind', 'text')}"
+        volto_type = _IR_FIELD_TYPE_TO_VOLTO.get(lookup_key, "text")
         sub: dict[str, Any] = {
             "id": child["id"],
             "field_id": child["id"],
@@ -880,23 +883,29 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
             "label": ca.get("label", ""),
         }
 
-        if ir_type == "form_hidden_field":
-            sub["value"] = ca.get("value", "")
-        else:
-            sub["description"] = ca.get("description", "")
-            sub["required"] = ca.get("required", False)
+        sub["description"] = ca.get("description", "")
+        sub["required"] = ca.get("required", False)
 
-        if ir_type == "form_email_field" and ca.get("use_as_reply_to"):
+        if ir_type == "form_field" and ca.get("send_copy"):
             sub["use_as_reply_to"] = True
 
-        if ir_type in (
-            "form_select_field",
-            "form_radio_field",
-            "form_checkbox_field",
-        ):
+        if ir_type == "form_choice":
             sub["input_values"] = ca.get("options", [])
+            if ca.get("default"):
+                sub["default_value"] = ca["default"]
 
         subblocks.append(sub)
+
+    for label, value in attrs.get("metadata", {}).items():
+        subblocks.append(
+            {
+                "id": str(_uuid4()),
+                "field_id": str(_uuid4()),
+                "field_type": "hidden",
+                "label": label,
+                "value": value,
+            }
+        )
 
     return {
         "@type": "form",
@@ -954,21 +963,6 @@ def _reverse_tabs(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
     }
 
 
-def _reverse_pdf_viewer(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
-    attrs = block["attributes"]
-    return {
-        "@type": "pdf_viewer",
-        "url": attrs["url"],
-        "initialPage": attrs.get("initial_page", 1),
-        "fitPageWidth": attrs.get("fit_page_width", True),
-        "hideToolbar": attrs.get("hide_toolbar", False),
-        "hideNavbar": attrs.get("hide_navbar", False),
-        "disableScroll": attrs.get("disable_scroll", False),
-        "clickToDownload": attrs.get("click_to_download", False),
-        "showPagesPreview": attrs.get("show_pages_preview", False),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Reverse converter dispatch table
 # ---------------------------------------------------------------------------
@@ -995,5 +989,4 @@ _REVERSE_CONVERTERS: dict[str, _ReverseConverterFn] = {
     "statistic": _reverse_statistic,
     "form": _reverse_form,
     "tabs": _reverse_tabs,
-    "pdf_viewer": _reverse_pdf_viewer,
 }

@@ -615,26 +615,6 @@ def _render_tabs(b: dict[str, Any], w: int) -> list[str]:
     return lines
 
 
-def _render_pdf_viewer(b: dict[str, Any], w: int) -> list[str]:
-    attrs = b["attributes"]
-    url = attrs.get("url", "")
-    box_w = max(16, int(w * 0.6))
-    iw = box_w - 4
-    short = url if len(url) <= iw else url[: iw - 1] + "…"
-    pdf = [
-        "┌" + "─" * (box_w - 2) + "┐",
-        "│ " + _pad("", iw) + " │",
-        "│ " + _pad("📄 PDF", iw, "center") + " │",
-    ]
-    if url:
-        pdf.append("│ " + _pad(short, iw, "center") + " │")
-    pdf += [
-        "│ " + _pad("", iw) + " │",
-        "└" + "─" * (box_w - 2) + "┘",
-    ]
-    return [_pad(line, w, "center") for line in pdf]
-
-
 # ─────────────────────────────────────────────────────────
 # Dispatch table
 # ─────────────────────────────────────────────────────────
@@ -659,7 +639,6 @@ _RENDERERS: dict[str, Any] = {
     "statistic": _render_statistic,
     "form": _render_form,
     "tabs": _render_tabs,
-    "pdf_viewer": _render_pdf_viewer,
 }
 
 

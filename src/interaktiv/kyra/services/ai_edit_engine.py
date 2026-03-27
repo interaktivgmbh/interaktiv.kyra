@@ -23,6 +23,7 @@ from plone.restapi.services import Service
 from zope.interface import alsoProvides
 
 from interaktiv.kyra.agent.stock_photos import make_stock_photo_tools
+from interaktiv.kyra.services.ai_edit_browsing import build_page_context, load_site_snapshot, make_browsing_tools
 from interaktiv.kyra.services.ai_edit_documents import load_documents_from_plone, make_document_tools
 from interaktiv.kyra.agent.volto_vanilla.agent import make_agent
 from interaktiv.kyra.agent.volto_vanilla.converter import volto_to_page_state
@@ -309,14 +310,19 @@ class AIEditCreateConversation(_EngineServiceBase):
         read_only = not permissions
         engine = Engine.from_page_state(page_state)
 
+        # Site snapshot (loaded from Plone catalog — must happen in request thread)
+        site_snap = load_site_snapshot()
+        browsing_tools = make_browsing_tools(site_snap)
+
         if read_only:
-            tools: list = []
+            tools: list = list(browsing_tools)
         else:
             tools = make_tools(
                 engine,
                 permissions=permissions,
                 reference_engines=ref_pages,
             )
+            tools.extend(browsing_tools)
             if "create" in permissions:
                 tools.extend(make_stock_photo_tools())
             # Document search tools (loaded from Plone catalog)
@@ -349,6 +355,15 @@ class AIEditCreateConversation(_EngineServiceBase):
             checkpointer=checkpointer,
         )
 
+        # Build page context (ancestors, siblings, children) from snapshot
+        page_link = page_state.metadata.link or ""
+        initial_context = ""
+        if page_link and site_snap.all_nodes:
+            try:
+                initial_context = build_page_context(site_snap, page_link)
+            except Exception:
+                logger.debug("[KYRA] Failed to build page context", exc_info=True)
+
         conversation_id = str(uuid.uuid4())
         conv = Conversation(
             conversation_id=conversation_id,
@@ -365,6 +380,7 @@ class AIEditCreateConversation(_EngineServiceBase):
                 "max_concurrency": 1,
             },
             reference_engines=ref_engines,
+            initial_context=initial_context,
         )
         conversations.create(conv)
 
@@ -421,6 +437,10 @@ class AIEditSendMessage(_EngineServiceBase):
 
         # Build user message with optional prefix notes
         prefixes: list[str] = []
+
+        # Inject page context on first message
+        if conv.first_message and conv.initial_context:
+            prefixes.append(f"[Seitenkontext]\n{conv.initial_context}")
 
         if conv.read_only and (conv.first_message or state_changed_externally):
             state_json = json.dumps(

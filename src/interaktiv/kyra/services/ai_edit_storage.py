@@ -24,6 +24,7 @@ class Conversation:
     agent: Any  # CompiledStateGraph
     config: dict[str, Any]
     reference_engines: dict[str, Engine] = field(default_factory=dict)
+    initial_context: str = ""  # Page hierarchy context injected on first message
     first_message: bool = True
     active_job: Job | None = field(default=None, repr=False)
 

@@ -495,10 +495,7 @@ class Engine:
         if isinstance(patch, EngineResult):
             return patch
 
-        if hasattr(block.attributes, "model_dump"):
-            merged_attributes = block.attributes.model_dump()
-        else:
-            merged_attributes = dict(block.attributes)
+        merged_attributes = block.attributes.model_dump()
         merged_attributes.update(patch.model_dump(exclude_none=True))
         new_attrs = self._validate_model(
             spec.attributes_model,
@@ -553,6 +550,71 @@ class Engine:
                 return inv_err
 
         return _ok("deleted", f"Deleted '{name}' from {path}.")
+
+    def swap_elements(
+        self,
+        *,
+        path_a: str,
+        name_a: str,
+        path_b: str,
+        name_b: str,
+    ) -> EngineResult:
+        """Swap the positions of two elements across any containers."""
+        cont_a = self._resolve_container(path_a)
+        if isinstance(cont_a, EngineResult):
+            return cont_a
+        found_a = _find_block(cont_a, name_a)
+        if found_a is None:
+            return _err(
+                "element_not_found",
+                f"Element '{name_a}' not found at {path_a}. "
+                f"Available: {', '.join(_names(cont_a))}.",
+            )
+
+        cont_b = self._resolve_container(path_b)
+        if isinstance(cont_b, EngineResult):
+            return cont_b
+        found_b = _find_block(cont_b, name_b)
+        if found_b is None:
+            return _err(
+                "element_not_found",
+                f"Element '{name_b}' not found at {path_b}. "
+                f"Available: {', '.join(_names(cont_b))}.",
+            )
+
+        idx_a, block_a = found_a
+        idx_b, block_b = found_b
+
+        # Validate parent-child compatibility in the swapped positions.
+        pc_err = self._validate_parent_child(path_a, block_b.type)
+        if pc_err is not None:
+            return pc_err
+        pc_err = self._validate_parent_child(path_b, block_a.type)
+        if pc_err is not None:
+            return pc_err
+
+        # Perform the swap.
+        cont_a[idx_a] = block_b
+        cont_b[idx_b] = block_a
+        _update_paths(block_a, path_b)
+        _update_paths(block_b, path_a)
+
+        # Validate column width constraints if columns are involved.
+        if block_a.type == "column" or block_b.type == "column":
+            for check_path in {path_a, path_b}:
+                width_err = self._check_column_width(check_path)
+                if width_err is not None:
+                    # Rollback.
+                    cont_a[idx_a] = block_a
+                    cont_b[idx_b] = block_b
+                    _update_paths(block_a, path_a)
+                    _update_paths(block_b, path_b)
+                    return width_err
+
+        return _ok(
+            "swapped",
+            f"Swapped '{name_a}' ({path_a}) and '{name_b}' ({path_b}).",
+        )
 
     def move_element(
         self,
