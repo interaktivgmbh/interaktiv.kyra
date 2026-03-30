@@ -70,7 +70,7 @@ def _create_github_issue(
         return None
 
 
-def _format_issue_body(data: Dict[str, Any]) -> str:
+def _format_issue_body(data: Dict[str, Any], username: str = "") -> str:
     """Format error data into a GitHub issue body."""
     error_message = data.get("error_message", "Unknown error")
     error_type = data.get("error_type", "")
@@ -91,6 +91,8 @@ def _format_issue_body(data: Dict[str, Any]) -> str:
         lines.append(f"**Type:** `{error_type}`")
     if component:
         lines.append(f"**Component:** `{component}`")
+    if username:
+        lines.append(f"**User:** `{username}`")
     if page_url:
         lines.append(f"**Page:** {page_url}")
     if user_action:
@@ -152,6 +154,14 @@ class AIErrorReport(Service):
                 "reason": "GitHub token or repo not configured",
             }
 
+        # Get current Plone user
+        username = ""
+        try:
+            user = api.user.get_current()
+            username = user.getId() or user.getUserName() or ""
+        except Exception:
+            pass
+
         # Build issue title (truncated)
         error_type = data.get("error_type", "Error")
         title_text = error_message[:80]
@@ -159,7 +169,7 @@ class AIErrorReport(Service):
             title_text += "..."
         title = f"[Auto] {error_type}: {title_text}"
 
-        body = _format_issue_body(data)
+        body = _format_issue_body(data, username=username)
 
         result = _create_github_issue(
             config["token"],
