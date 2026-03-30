@@ -1055,6 +1055,84 @@ def _convert_tabs(
 
 
 # ---------------------------------------------------------------------------
+# Listing
+# ---------------------------------------------------------------------------
+
+_VOLTO_QUERY_OP_TO_FILTER_TYPE: dict[str, str] = {
+    "plone.app.querystring.operation.string.absolutePath": "path",
+    "plone.app.querystring.operation.selection.any": "content_type",
+    "plone.app.querystring.operation.list.contains": "subject",
+    "plone.app.querystring.operation.date.afterToday": "date",
+    "plone.app.querystring.operation.date.beforeToday": "date",
+    "plone.app.querystring.operation.date.between": "date",
+}
+
+
+def _convert_listing(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    container_name = names.next("listing")
+
+    qs = raw.get("querystring") or {}
+    raw_queries = qs.get("query") or []
+    filters: list[dict[str, Any]] = []
+    for q in raw_queries:
+        index = q.get("i", "")
+        op = q.get("o", "")
+        value = q.get("v", "")
+        filter_type = _VOLTO_QUERY_OP_TO_FILTER_TYPE.get(op, "")
+        if not filter_type:
+            continue
+        if filter_type == "path":
+            filters.append({"type": "path", "path": value or "/"})
+        elif filter_type == "content_type":
+            vals = value if isinstance(value, list) else [value]
+            for v in vals:
+                filters.append({"type": "content_type", "content_type": v})
+        elif filter_type == "subject":
+            vals = value if isinstance(value, list) else [value]
+            for v in vals:
+                filters.append({"type": "subject", "tag": v})
+        elif filter_type == "date":
+            filters.append({"type": "date", "field": index, "range": op.split(".")[-1]})
+
+    sort_on = qs.get("sort_on", "")
+    sort_order = qs.get("sort_order", "ascending")
+    limit = 10
+    try:
+        limit = int(qs.get("limit", 10))
+    except (ValueError, TypeError):
+        pass
+
+    headline_tag = raw.get("headlineTag", "h2")
+    headline_level = 3 if headline_tag == "h3" else 2
+
+    return {
+        "type": "listing",
+        "id": uid,
+        "path": path,
+        "name": container_name,
+        "attributes": {
+            "headline": raw.get("headline", ""),
+            "headline_level": headline_level,
+            "query": {
+                "filters": filters,
+                "sort_on": sort_on,
+                "sort_order": sort_order,
+                "limit": limit,
+            },
+            "variation": raw.get("variation", "default"),
+        },
+        "children": [],  # Populated by the CMS adapter at runtime
+    }
+
+
+# ---------------------------------------------------------------------------
 # Converter dispatch table
 # ---------------------------------------------------------------------------
 
@@ -1084,4 +1162,5 @@ _CONVERTERS: dict[str, _ConverterFn] = {
     "statistic_block": _convert_statistic,
     "form": _convert_form,
     "tabs_block": _convert_tabs,
+    "listing": _convert_listing,
 }

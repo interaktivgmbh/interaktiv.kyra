@@ -6,7 +6,7 @@ URL = 'https://github.com/interaktivgmbh/interaktiv.kyra'
 EMAIL = 'support@interaktiv.de'
 AUTHOR = 'Interaktiv GmbH'
 REQUIRES_PYTHON = '>=3.11'
-VERSION = '2.2.1'
+VERSION = '2.2.2'
 REQUIRED = [
     'setuptools',
     'Plone>=6.0',

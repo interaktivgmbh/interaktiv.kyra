@@ -970,6 +970,66 @@ def _reverse_tabs(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
+# Listing
+# ---------------------------------------------------------------------------
+
+_IR_FILTER_TYPE_TO_VOLTO_OP: dict[str, str] = {
+    "path": "plone.app.querystring.operation.string.absolutePath",
+    "content_type": "plone.app.querystring.operation.selection.any",
+    "subject": "plone.app.querystring.operation.list.contains",
+}
+
+
+def _reverse_listing(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    preserved = _try_preserve_container(block, ctx)
+    if preserved is not None:
+        return preserved
+
+    attrs = block["attributes"]
+    query = attrs.get("query", {})
+    filters = query.get("filters", [])
+
+    volto_queries: list[dict[str, Any]] = []
+    for f in filters:
+        ftype = f.get("type", "")
+        if ftype == "path":
+            volto_queries.append({
+                "i": "path",
+                "o": "plone.app.querystring.operation.string.absolutePath",
+                "v": f.get("path", ""),
+            })
+        elif ftype == "content_type":
+            volto_queries.append({
+                "i": "portal_type",
+                "o": "plone.app.querystring.operation.selection.any",
+                "v": [f.get("content_type", "")],
+            })
+        elif ftype == "subject":
+            volto_queries.append({
+                "i": "Subject",
+                "o": "plone.app.querystring.operation.list.contains",
+                "v": [f.get("tag", "")],
+            })
+
+    headline_level = attrs.get("headline_level", 2)
+    headline_tag = "h3" if headline_level == 3 else "h2"
+
+    result: dict[str, Any] = {
+        "@type": "listing",
+        "headline": attrs.get("headline", ""),
+        "headlineTag": headline_tag,
+        "variation": attrs.get("variation", "default"),
+        "querystring": {
+            "query": volto_queries,
+            "sort_on": query.get("sort_on", ""),
+            "sort_order": query.get("sort_order", "ascending"),
+            "limit": str(query.get("limit", 10)),
+        },
+    }
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Reverse converter dispatch table
 # ---------------------------------------------------------------------------
 
@@ -995,4 +1055,5 @@ _REVERSE_CONVERTERS: dict[str, _ReverseConverterFn] = {
     "statistic": _reverse_statistic,
     "form": _reverse_form,
     "tabs": _reverse_tabs,
+    "listing": _reverse_listing,
 }

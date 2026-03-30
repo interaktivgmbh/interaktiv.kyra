@@ -215,6 +215,28 @@ class FormAttributes(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
+class ListingQuery(BaseModel):
+    filters: list[dict[str, Any]] = Field(default_factory=list)
+    sort_on: str = ""
+    sort_order: str = "ascending"
+    limit: int = 10
+
+
+class ListingItemAttributes(BaseModel):
+    content_path: str
+    title: str
+    description: str = ""
+    content_type: str = ""
+    preview_image: str = ""
+
+
+class ListingAttributes(BaseModel):
+    headline: str = ""
+    headline_level: int = 2
+    query: ListingQuery = Field(default_factory=ListingQuery)
+    variation: str = "default"
+
+
 class TabAttributes(BaseModel):
     title: str
 
@@ -456,6 +478,23 @@ class FormFieldBlock(BaseModel):
 FormChild = FormFieldBlock | RichTextBlock
 
 
+class ListingItemBlock(BaseModel):
+    type: Literal["listing_item"]
+    id: str
+    path: str
+    name: str
+    attributes: ListingItemAttributes
+
+
+class ListingBlock(BaseModel):
+    type: Literal["listing"]
+    id: str
+    path: str
+    name: str
+    attributes: ListingAttributes
+    children: list[ListingItemBlock] = Field(default_factory=list)
+
+
 class FormBlock(BaseModel):
     type: Literal["form"]
     id: str
@@ -496,6 +535,7 @@ type Block = Annotated[
     | ColumnsBlock
     | AccordionBlock
     | StatisticBlock
+    | ListingBlock
     | FormBlock
     | TabsBlock,
     Field(discriminator="type"),
