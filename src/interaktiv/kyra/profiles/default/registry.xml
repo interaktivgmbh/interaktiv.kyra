@@ -1,17 +1,8 @@
 <?xml version="1.0"?>
 <registry>
-    <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema">
-      <value key="gateway_url">http://localhost</value>
-      <value key="keycloak_realms_url">http://localhost</value>
-      <value key="keycloak_client_id">plone</value>
-      <value key="keycloak_client_secret">plone</value>
-      <value key="keycloak_token_expiration_time">0</value>
-      <value key="domain_id">plone</value>
-      <value key="deepl_api_key"></value>
-      <value key="openai_api_key"></value>
-      <value key="openai_model">gpt-5.4-mini</value>
-      <value key="github_token"></value>
-      <value key="github_repo">interaktivgmbh/volto-interaktiv-kyra</value>
-    </records>
-    <records interface="interaktiv.kyra.registry.ai_assistant_cache.IAIAssistantCacheSchema"/>
+    <records interface="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"
+             prefix="interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema"
+             purge="false" />
+    <records interface="interaktiv.kyra.registry.ai_assistant_cache.IAIAssistantCacheSchema"
+             purge="false" />
 </registry>

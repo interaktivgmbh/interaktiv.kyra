@@ -53,7 +53,7 @@ class IAIAssistantSchema(Interface):
         required=False,
     )
 
-    openai_api_key = schema.TextLine(
+    openai_api_key = schema.Password(
         title=u"OpenAI API Key",
         description=u"API key for the LLM powering the Layout Agent (OpenAI-compatible).",
         required=False,
