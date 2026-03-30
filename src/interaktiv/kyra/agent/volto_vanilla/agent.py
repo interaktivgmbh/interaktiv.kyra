@@ -13,52 +13,14 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AnyMessage, SystemMessage
+from langchain_core.messages import SystemMessage
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
-from interaktiv.kyra.agent.core.schemas import ContentNode, Site
-
 logger = logging.getLogger(__name__)
 
-
-def _format_node(node: ContentNode) -> str:
-    """One-line summary: path — title (content_type) + description if available."""
-    line = f"  {node.path} — {node.title} ({node.content_type})"
-    if node.description:
-        line += f" — {node.description}"
-    return line
-
-
-async def build_context(site: Site, page: str) -> str:
-    """Build a context block with ancestors, siblings, and children."""
-    parts: list[str] = []
-
-    # Ancestors (breadcrumb).
-    ancestors = await site.get_ancestors(page)
-    if ancestors:
-        parts.append("Elternhierarchie:")
-        for node in ancestors:
-            parts.append(_format_node(node))
-
-    # Siblings (other children of the parent).
-    parent = "/".join(page.rstrip("/").split("/")[:-1]) or "/"
-    if parent != page:
-        siblings = await site.get_children(parent, limit=25)
-        others = [s for s in siblings if s.path != page]
-        if others:
-            parts.append("Geschwisterseiten:")
-            for node in others:
-                parts.append(_format_node(node))
-
-    # Children.
-    children = await site.get_children(page, limit=25)
-    if children:
-        parts.append("Unterseiten:")
-        for node in children:
-            parts.append(_format_node(node))
-
-    return "\n".join(parts)
+# Re-export from canonical location for backwards compatibility.
+from interaktiv.kyra.agent.core.graph import build_context  # noqa: F401, E402
 
 
 class RetryMiddleware(AgentMiddleware[Any, Any, Any]):

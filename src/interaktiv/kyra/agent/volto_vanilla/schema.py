@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
@@ -525,6 +526,8 @@ class Metadata(BaseModel):
     description: str = ""
     preview_image: str = ""
     subjects: list[str] = Field(default_factory=list)
+    start: datetime | None = None
+    end: datetime | None = None
 
 
 class PageState(BaseModel):

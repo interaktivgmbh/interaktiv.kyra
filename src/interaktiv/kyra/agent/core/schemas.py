@@ -31,6 +31,8 @@ class ContentNode(BaseModel):
     created: datetime | None = None
     modified: datetime | None = None
     published: datetime | None = None
+    start: datetime | None = None
+    end: datetime | None = None
 
 
 # ===================================================================
@@ -349,7 +351,7 @@ class StatisticItemAttributes(BaseModel):
 
 
 class StatisticAttributes(BaseModel):
-    horizontal: bool = False
+    horizontal: bool = True
     inverted: bool = False
     size: Literal["mini", "tiny", "small", "large", "huge"] = "small"
     widths: Annotated[int, Field(ge=1, le=4)] = 1
@@ -755,6 +757,12 @@ class MetadataUpdate(BaseModel):
     subjects: list[str] | None = Field(
         default=None, description="Tags (replaces entire list)."
     )
+    start: datetime | None = Field(
+        default=None, description="Event start date/time (ISO 8601)."
+    )
+    end: datetime | None = Field(
+        default=None, description="Event end date/time (ISO 8601)."
+    )
 
 
 # ===================================================================
@@ -1146,6 +1154,8 @@ class Metadata(BaseModel):
     description: str = ""
     preview_image: str = ""
     subjects: list[str] = Field(default_factory=list)
+    start: datetime | None = None
+    end: datetime | None = None
 
 
 class PageState(BaseModel):

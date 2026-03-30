@@ -86,6 +86,8 @@ def volto_to_page_state(data: dict[str, Any]) -> PageState:
         description=data.get("description", ""),
         preview_image=data.get("preview_image", ""),
         subjects=data.get("subjects", []),
+        start=data.get("start"),
+        end=data.get("end"),
     )
 
     page_description = data.get("description", "")

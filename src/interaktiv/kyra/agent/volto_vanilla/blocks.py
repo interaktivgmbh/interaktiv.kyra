@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -79,6 +80,23 @@ class PatchAttributes(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class HtmlPatch(BaseModel):
+    """Substring replacement for an HTML field.
+
+    Instead of rewriting the entire HTML, specify the exact substring to
+    find and what to replace it with.  All occurrences are replaced.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    old: str = Field(
+        min_length=1, description="Exact substring to find in the current HTML."
+    )
+    new: str = Field(
+        description="Replacement string (may be empty to delete the substring)."
+    )
+
+
 class TitleCreateAttributes(CreateAttributes):
     """Title block — the page title."""
 
@@ -140,12 +158,12 @@ class RichTextCreateAttributes(CreateAttributes):
 class RichTextPatchAttributes(PatchAttributes):
     """Patch attributes for rich-text blocks."""
 
-    html: str | None = Field(
+    html: HtmlPatch | str | None = Field(
         default=None,
         description=(
-            "Rich-text HTML. Allowed tags: p, h2, h3, ul, ol, li, blockquote, "
-            "a, br, strong, b, em, i, u, s, del, code. Only 'href' on <a>. "
-            "Use <p> for paragraphs, <br> for line breaks within a paragraph."
+            "Full HTML string or {old, new} for substring replacement. "
+            "Allowed tags: p, h2, h3, ul, ol, li, blockquote, "
+            "a, br, strong, b, em, i, u, s, del, code. Only 'href' on <a>."
         ),
     )
 
@@ -283,7 +301,10 @@ class HighlightPatchAttributes(PatchAttributes):
 
     image_url: str | None = Field(default=None, description="Optional image URL.")
     title: str | None = Field(default=None, description="Highlight title.")
-    html: str | None = Field(default=None, description="Highlight body HTML.")
+    html: HtmlPatch | str | None = Field(
+        default=None,
+        description="Full HTML or {old, new} for substring replacement. Highlight body HTML.",
+    )
     button_show: bool | None = Field(
         default=None, description="Whether the CTA button is visible."
     )
@@ -311,7 +332,10 @@ class TableCreateAttributes(CreateAttributes):
 class TablePatchAttributes(PatchAttributes):
     """Patch attributes for table blocks."""
 
-    html: str | None = Field(default=None, description="Table HTML.")
+    html: HtmlPatch | str | None = Field(
+        default=None,
+        description="Full table HTML or {old, new} for substring replacement.",
+    )
     minimal_style: bool | None = Field(
         default=None, description="Minimal visual style."
     )
@@ -519,9 +543,18 @@ class QuoteCreateAttributes(CreateAttributes):
 class QuotePatchAttributes(PatchAttributes):
     """Patch attributes for quote blocks."""
 
-    html: str | None = Field(default=None, description="Quote text HTML.")
-    source_html: str | None = Field(default=None, description="Attribution HTML.")
-    extra_html: str | None = Field(default=None, description="Extra context HTML.")
+    html: HtmlPatch | str | None = Field(
+        default=None,
+        description="Full HTML or {old, new} for substring replacement. Quote text.",
+    )
+    source_html: HtmlPatch | str | None = Field(
+        default=None,
+        description="Full HTML or {old, new} for substring replacement. Attribution.",
+    )
+    extra_html: HtmlPatch | str | None = Field(
+        default=None,
+        description="Full HTML or {old, new} for substring replacement. Extra context.",
+    )
     variation: Literal["default", "testimonial"] | None = Field(
         default=None, description="Visual variation."
     )
@@ -529,7 +562,10 @@ class QuotePatchAttributes(PatchAttributes):
         default=None, description="Quote alignment."
     )
     reversed: bool | None = Field(default=None, description="Show source before quote.")
-    title_html: str | None = Field(default=None, description="Testimonial title HTML.")
+    title_html: HtmlPatch | str | None = Field(
+        default=None,
+        description="Full HTML or {old, new} for substring replacement. Testimonial title.",
+    )
     image_url: str | None = Field(default=None, description="Testimonial image URL.")
 
 
@@ -749,6 +785,12 @@ class MetadataPatchAttributes(PatchAttributes):
     subjects: list[str] | None = Field(
         default=None, description="Page tags / subjects."
     )
+    start: datetime | None = Field(
+        default=None, description="Event start date/time (ISO 8601)."
+    )
+    end: datetime | None = Field(
+        default=None, description="Event end date/time (ISO 8601)."
+    )
 
 
 @dataclass(frozen=True)
@@ -799,7 +841,7 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         RichTextCreateAttributes,
         RichTextPatchAttributes,
         "Create a `rich_text` element. HTML must use the strict subset.",
-        "Patch attributes on an existing `rich_text` element. HTML must use the strict subset.",
+        "Patch a `rich_text` element. HTML accepts a full string or {old, new} for substring replacement.",
     ),
     BlockSpec(
         "image",
@@ -853,7 +895,7 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         HighlightCreateAttributes,
         HighlightPatchAttributes,
         "Create a `highlight` element. Body HTML must use the strict subset.",
-        "Patch attributes on an existing `highlight` element. HTML must use the strict subset.",
+        "Patch a `highlight` element. HTML accepts a full string or {old, new} for substring replacement.",
     ),
     BlockSpec(
         "table",
@@ -862,7 +904,7 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         TableCreateAttributes,
         TablePatchAttributes,
         "Create a `table` element.",
-        "Patch attributes on an existing `table` element. Only provided fields are changed.",
+        "Patch a `table` element. HTML accepts a full string or {old, new} for substring replacement.",
     ),
     BlockSpec(
         "slide",
@@ -943,7 +985,7 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         QuoteCreateAttributes,
         QuotePatchAttributes,
         "Create a `quote` element (blockquote with attribution).",
-        "Patch attributes on an existing `quote` element. Only provided fields are changed.",
+        "Patch a `quote` element. HTML fields accept a full string or {old, new} for substring replacement.",
     ),
     BlockSpec(
         "statistic_item",

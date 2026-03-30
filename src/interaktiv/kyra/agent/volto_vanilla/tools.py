@@ -9,8 +9,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field, create_model
 
 from interaktiv.kyra.agent.volto_vanilla import blocks
-from interaktiv.kyra.agent.volto_vanilla.engine import Engine, EngineResult
-from interaktiv.kyra.agent.volto_vanilla.blocks import MetadataPatchAttributes
+from interaktiv.kyra.agent.volto_vanilla.engine import Engine, EngineResult, MetadataPatchAttributes
 
 ContainerPath = Annotated[
     str,
@@ -81,9 +80,33 @@ def _dump_patch(attrs: blocks.PatchAttributes) -> dict[str, Any]:
     return attrs.model_dump(mode="python", exclude_unset=True)
 
 
+CanCopyReasoning = Annotated[
+    str,
+    Field(
+        description=(
+            "Prüfe, ob ein bestehendes Element kopiert werden könnte, "
+            "statt ein neues zu erstellen. Gibt es auf der aktuellen Seite, "
+            "einer Referenzseite oder einer Geschwisterseite ein Element, "
+            "das als Vorlage dienen könnte?"
+        ),
+    ),
+]
+CanCopy = Annotated[
+    bool,
+    Field(
+        description=(
+            "true, wenn ein bestehendes Element kopiert und angepasst werden könnte. "
+            "false, wenn kein passendes Element zum Kopieren existiert."
+        ),
+    ),
+]
+
+
 def _create_args_schema(spec: blocks.BlockSpec) -> type[BaseModel]:
     return create_model(
         f"{spec.create_model.__name__}ToolInput",
+        can_copy_reasoning=(CanCopyReasoning, ...),
+        can_copy=(CanCopy, ...),
         path=(ContainerPath, ...),
         name=(ElementName, ...),
         attributes=(spec.create_model, ...),
@@ -106,6 +129,18 @@ def _make_create_tool(engine: Engine, spec: blocks.BlockSpec) -> BaseTool:
     args_schema = _create_args_schema(spec)
 
     def run_tool(**kwargs: Any) -> str:
+        if kwargs.get("can_copy"):
+            return _result_to_str(
+                EngineResult(
+                    ok=False,
+                    code="copy_preferred",
+                    message=(
+                        "Erstellen abgelehnt: Es gibt ein bestehendes Element, "
+                        "das kopiert werden könnte. Verwende copy_element, um es "
+                        "zu kopieren und anschließend anzupassen."
+                    ),
+                )
+            )
         attributes = kwargs["attributes"]
         return _result_to_str(
             engine.create_element(
@@ -243,12 +278,52 @@ def make_metadata_update_tools(engine: Engine) -> list[BaseTool]:
     return [update_metadata]
 
 
+DidBackupReasoning = Annotated[
+    str,
+    Field(
+        description=(
+            "Erkläre vor dem Löschen, ob du den Inhalt gesichert hast. "
+            "Zum Beispiel: an anderer Stelle kopiert, bereits in einem neuen "
+            "Block nachgebaut, oder der Nutzer hat ausdrücklich darum gebeten, "
+            "den Inhalt endgültig zu entfernen."
+        ),
+    ),
+]
+DidBackup = Annotated[
+    bool,
+    Field(
+        description=(
+            "true, wenn der Inhalt gesichert, bereits nachgebaut oder "
+            "vom Nutzer ausdrücklich zum endgültigen Löschen freigegeben wurde. "
+            "false, wenn Informationen verloren gehen würden."
+        ),
+    ),
+]
+
+
 def make_delete_tools(engine: Engine) -> list[BaseTool]:
     """delete_element."""
 
     @tool
-    def delete_element(path: ContainerPath, name: ElementName) -> str:
-        """Delete an element from a container scope."""
+    def delete_element(
+        did_backup_reasoning: DidBackupReasoning,
+        did_backup: DidBackup,
+        path: ContainerPath,
+        name: ElementName,
+    ) -> str:
+        """Element aus einem Container löschen. Erfordert Bestätigung, dass der Inhalt gesichert oder bewusst verworfen wird."""
+        if not did_backup:
+            return _result_to_str(
+                EngineResult(
+                    ok=False,
+                    code="backup_required",
+                    message=(
+                        "Löschen verweigert: Inhalt wurde nicht gesichert. "
+                        "Kopiere oder erstelle den Inhalt zuerst neu, oder "
+                        "bestätige, dass der Nutzer ihn endgültig entfernen möchte."
+                    ),
+                )
+            )
         return _result_to_str(engine.delete_element(path=path, name=name))
 
     return [delete_element]

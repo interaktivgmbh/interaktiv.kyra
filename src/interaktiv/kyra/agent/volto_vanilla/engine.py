@@ -189,6 +189,33 @@ class Engine:
         if block_type == "description" and "text" in updated_fields:
             self._metadata.description = merged_attributes["text"]
 
+    def _resolve_html_patches(
+        self,
+        patch: BaseModel,
+        current_attrs: BaseModel,
+    ) -> dict[str, Any] | EngineResult:
+        """Turn a validated patch into a plain-dict update.
+
+        ``HtmlPatch`` values are applied as substring replacements against the
+        corresponding field in *current_attrs*; all other values pass through
+        unchanged.
+        """
+        updates = patch.model_dump(exclude_none=True)
+        for field_name in list(updates):
+            value = getattr(patch, field_name)
+            if isinstance(value, block_defs.HtmlPatch):
+                current_val = getattr(current_attrs, field_name, "")
+                if not isinstance(current_val, str):
+                    current_val = ""
+                if value.old not in current_val:
+                    return _err(
+                        "html_patch_not_found",
+                        f"Substring not found in '{field_name}'. "
+                        f"Use get_layout to read the current content first.",
+                    )
+                updates[field_name] = current_val.replace(value.old, value.new)
+        return updates
+
     def _build_block(
         self,
         spec: block_defs.BlockSpec,
@@ -495,8 +522,13 @@ class Engine:
         if isinstance(patch, EngineResult):
             return patch
 
+        # Resolve HtmlPatch fields (substring replacement) before merging.
+        resolved = self._resolve_html_patches(patch, block.attributes)
+        if isinstance(resolved, EngineResult):
+            return resolved
+
         merged_attributes = block.attributes.model_dump()
-        merged_attributes.update(patch.model_dump(exclude_none=True))
+        merged_attributes.update(resolved)
         new_attrs = self._validate_model(
             spec.attributes_model,
             merged_attributes,

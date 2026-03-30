@@ -222,6 +222,10 @@ def layout_to_volto(
         result["preview_image"] = metadata.preview_image
     if metadata.subjects:
         result["subjects"] = metadata.subjects
+    if metadata.start is not None:
+        result["start"] = metadata.start.isoformat()
+    if metadata.end is not None:
+        result["end"] = metadata.end.isoformat()
 
     result["blocks"] = blocks
     result["blocks_layout"] = {"items": items}
