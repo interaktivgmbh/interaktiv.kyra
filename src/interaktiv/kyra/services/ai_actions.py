@@ -248,9 +248,12 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
         while stack:
             current = stack.pop()
             targets.append(current)
-            children = getattr(current, "objectValues", lambda: [])()
-            for child in children:
-                stack.append(child)
+            try:
+                children = getattr(current, "objectValues", lambda: [])()
+                for child in children:
+                    stack.append(child)
+            except (RecursionError, Exception) as exc:
+                logger.warning("Skipping children of %s: %s", getattr(current, "getId", lambda: "?")(), exc)
 
     created = 0
     updated = 0
@@ -1773,11 +1776,12 @@ class AIActionsService(ServiceBase):
 
         if plan_id:
             plan = _load_plan(target, plan_id)
-            if not plan:
-                raise BadRequest("Unknown plan_id")
-            plan_actions = plan.get("actions") or []
-            if plan_actions:
-                actions = plan_actions
+            if plan:
+                plan_actions = plan.get("actions") or []
+                if plan_actions:
+                    actions = plan_actions
+            else:
+                logger.warning("Plan %s not found on target, falling back to inline actions", plan_id)
 
         if not isinstance(actions, list) or not actions:
             raise BadRequest("Missing actions to apply")
