@@ -446,12 +446,14 @@ class AIEditSendMessage(_EngineServiceBase):
             state_json = json.dumps(
                 conv.engine.get_page_state().model_dump(),
                 ensure_ascii=False,
+                default=str,
             )
             prefixes.append(f"[Aktueller Seiteninhalt:\n{state_json}]")
             for link, ref_eng in conv.reference_engines.items():
                 ref_json = json.dumps(
                     ref_eng.get_page_state().model_dump(),
                     ensure_ascii=False,
+                    default=str,
                 )
                 prefixes.append(f"[Referenzseite ({link}):\n{ref_json}]")
         elif state_changed_externally:
