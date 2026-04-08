@@ -12,7 +12,6 @@ from interaktiv.kyra.agent.volto_vanilla import blocks as block_defs
 from interaktiv.kyra.agent.volto_vanilla.blocks import MetadataPatchAttributes
 from interaktiv.kyra.agent.volto_vanilla.schema import (
     DescriptionAttributes,
-    Layout,
     Metadata,
     PageState,
     TitleAttributes,
@@ -731,60 +730,120 @@ class Engine:
         *,
         path: str,
         name: str,
+        end_name: str | None = None,
         to_path: str,
         after_name: str | None = None,
         before_name: str | None = None,
         to_start: bool = False,
         new_name: str | None = None,
     ) -> EngineResult:
-        """Copy an element subtree to another container scope."""
-        src_container = self._resolve_container(path)
+        """Copy a single element or a contiguous range to a container."""
+        return self.copy_element_from(
+            self,
+            path=path,
+            name=name,
+            end_name=end_name,
+            to_path=to_path,
+            after_name=after_name,
+            before_name=before_name,
+            to_start=to_start,
+            new_name=new_name,
+        )
+
+    def copy_element_from(
+        self,
+        source_engine: Engine,
+        *,
+        path: str,
+        name: str,
+        end_name: str | None = None,
+        to_path: str,
+        after_name: str | None = None,
+        before_name: str | None = None,
+        to_start: bool = False,
+        new_name: str | None = None,
+    ) -> EngineResult:
+        """Copy a single element or contiguous range from another engine."""
+        src_container = source_engine._resolve_container(path)
         if isinstance(src_container, EngineResult):
             return src_container
 
-        found = _find_block(src_container, name)
-        if found is None:
+        start_found = _find_block(src_container, name)
+        if start_found is None:
             return _err(
                 "element_not_found",
                 f"Element '{name}' not found at {path}. "
                 f"Available: {', '.join(_names(src_container))}.",
             )
-        _, block = found
+        start_idx = start_found[0]
+
+        if end_name is not None:
+            if new_name is not None:
+                return _err(
+                    "invalid_args",
+                    "new_name cannot be used when copying a range.",
+                )
+            end_found = _find_block(src_container, end_name)
+            if end_found is None:
+                return _err(
+                    "element_not_found",
+                    f"Element '{end_name}' not found at {path}. "
+                    f"Available: {', '.join(_names(src_container))}.",
+                )
+            end_idx = end_found[0]
+            if end_idx < start_idx:
+                return _err(
+                    "invalid_range",
+                    f"'{end_name}' comes before '{name}'. "
+                    f"Order: {', '.join(_names(src_container))}.",
+                )
+            source_blocks = list(src_container[start_idx : end_idx + 1])
+        else:
+            source_blocks = [start_found[1]]
 
         dst_container = self._resolve_container(to_path)
         if isinstance(dst_container, EngineResult):
             return dst_container
 
-        pc_err = self._validate_parent_child(to_path, block.type)
-        if pc_err is not None:
-            return pc_err
-
-        final_name = new_name or name
-        if _find_block(dst_container, final_name) is not None:
-            return _err(
-                "name_exists",
-                f"Name '{final_name}' already exists at {to_path}. Choose a different name.",
-            )
-
-        clone = _deep_copy(block)
-        clone.name = final_name
-        _update_paths(clone, to_path)
+        for block in source_blocks:
+            pc_err = self._validate_parent_child(to_path, block.type)
+            if pc_err is not None:
+                return pc_err
+            final = new_name if len(source_blocks) == 1 and new_name else block.name
+            if _find_block(dst_container, final) is not None:
+                return _err(
+                    "name_exists",
+                    f"Name '{final}' already exists at {to_path}. "
+                    f"Choose a different name.",
+                )
 
         pos = _resolve_position(dst_container, after_name, before_name, to_start)
         if isinstance(pos, EngineResult):
             return pos
 
-        dst_container.insert(pos, clone)
-        if clone.type == "column":
-            inv_err = self._check_column_width(to_path)
-            if inv_err is not None:
-                dst_container.remove(clone)
-                return inv_err
+        clones: list[BlockNode] = []
+        for i, block in enumerate(source_blocks):
+            clone = _deep_copy(block)
+            if len(source_blocks) == 1 and new_name:
+                clone.name = new_name
+            _update_paths(clone, to_path)
+            dst_container.insert(pos + i, clone)
+            if clone.type == "column":
+                inv_err = self._check_column_width(to_path)
+                if inv_err is not None:
+                    dst_container.remove(clone)
+                    return inv_err
+            clones.append(clone)
 
+        copied = ", ".join(f"'{c.name}'" for c in clones)
         return _ok(
             "copied",
-            f"Copied '{name}' to {to_path} as '{final_name}'.",
-            data=clone.model_dump(),
+            f"Copied {copied} to {to_path}.",
+            data=(
+                [c.model_dump() for c in clones]
+                if len(clones) > 1
+                else clones[0].model_dump()
+            ),
         )
 
     def get_metadata(self) -> EngineResult:

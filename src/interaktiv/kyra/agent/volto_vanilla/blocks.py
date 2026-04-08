@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from interaktiv.kyra.agent.volto_vanilla.schema import (
     AccordionAttributes,
+    AccordionArrowPosition,
     AccordionBlock,
     AccordionPanelAttributes,
     AccordionPanelBlock,
@@ -27,27 +28,35 @@ from interaktiv.kyra.agent.volto_vanilla.schema import (
     DescriptionBlock,
     DividerAttributes,
     DividerBlock,
+    FieldVisibilityRule,
     FormAttributes,
     FormBlock,
+    FormChoiceAttributes,
     FormFieldAttributes,
     FormFieldBlock,
-    FormChoiceAttributes,
     HeadingAttributes,
     HeadingBlock,
+    HighlightBackgroundColor,
     HighlightAttributes,
     HighlightBlock,
     ImageAlignment,
     ImageAttributes,
     ImageBlock,
     ImageSize,
-    InnerAlignment,
+    ButtonAlignment,
+    ListingAttributes,
+    ListingBlock,
+    ListingDisplayVariant,
+    ListingQuery,
     QuoteAttributes,
     QuoteBlock,
+    QuoteDisplayVariant,
     RichTextAttributes,
     RichTextBlock,
     SlideAttributes,
     SlideBlock,
     SliderAttributes,
+    SliderAutoplayTransition,
     SliderBlock,
     StatisticAttributes,
     StatisticBlock,
@@ -59,6 +68,7 @@ from interaktiv.kyra.agent.volto_vanilla.schema import (
     TableBlock,
     TabsAttributes,
     TabsBlock,
+    TabsDisplayVariant,
     TeaserAttributes,
     TeaserBlock,
     TitleAttributes,
@@ -153,6 +163,10 @@ class RichTextCreateAttributes(CreateAttributes):
             "Use <p> for paragraphs, <br> for line breaks within a paragraph."
         ),
     )
+    content_width: str = Field(
+        default="default",
+        description="Content width preset. Use 'default' when no explicit width is needed.",
+    )
 
 
 class RichTextPatchAttributes(PatchAttributes):
@@ -165,6 +179,10 @@ class RichTextPatchAttributes(PatchAttributes):
             "Allowed tags: p, h2, h3, ul, ol, li, blockquote, "
             "a, br, strong, b, em, i, u, s, del, code. Only 'href' on <a>."
         ),
+    )
+    content_width: str | None = Field(
+        default=None,
+        description="Content width preset. Use 'default' to clear an explicit width.",
     )
 
 
@@ -231,9 +249,7 @@ class ButtonCreateAttributes(CreateAttributes):
 
     title: str = Field(description="Button label text.")
     link: str = Field(description="Button destination URL/path.")
-    inner_alignment: InnerAlignment = Field(
-        description="Button alignment within the block."
-    )
+    alignment: ButtonAlignment = Field(description="Button alignment within the block.")
     open_link_in_new_tab: bool = Field(description="Open link in a new browser tab.")
 
 
@@ -242,7 +258,7 @@ class ButtonPatchAttributes(PatchAttributes):
 
     title: str | None = Field(default=None, description="Button label text.")
     link: str | None = Field(default=None, description="Button destination URL/path.")
-    inner_alignment: InnerAlignment | None = Field(
+    alignment: ButtonAlignment | None = Field(
         default=None, description="Button alignment within the block."
     )
     open_link_in_new_tab: bool | None = Field(
@@ -254,31 +270,55 @@ class TeaserCreateAttributes(CreateAttributes):
     """Linked preview card / teaser."""
 
     link: str = Field(description="Destination URL/path.")
-    overwrite: bool = Field(
-        description="Whether teaser title/description override linked content metadata."
+    use_custom_content: bool = Field(
+        description="Whether the teaser uses its own title and description instead of the linked page's content."
     )
     title: str = Field(description="Teaser title.")
-    head_title: str = Field(description="Optional eyebrow/head title.")
+    eyebrow: str = Field(description="Optional eyebrow text above the title.")
     description: str = Field(description="Teaser description text.")
     preview_image: str = Field(description="Preview image URL.")
+    show_button: bool = Field(
+        default=False, description="Whether to show a call-to-action button."
+    )
+    button_label: str = Field(default="", description="Call-to-action button label.")
+    alignment: Literal["default", "left", "center", "right"] = Field(
+        default="default",
+        description="Teaser alignment. Use 'default' to follow site defaults.",
+    )
+    button_style: str = Field(
+        default="default",
+        description="Button style preset, e.g. 'primary'. Use 'default' for site defaults.",
+    )
 
 
 class TeaserPatchAttributes(PatchAttributes):
     """Patch attributes for teaser blocks."""
 
     link: str | None = Field(default=None, description="Destination URL/path.")
-    overwrite: bool | None = Field(
+    use_custom_content: bool | None = Field(
         default=None,
-        description="Whether teaser title/description override linked content metadata.",
+        description="Whether the teaser uses its own title and description instead of the linked page's content.",
     )
     title: str | None = Field(default=None, description="Teaser title.")
-    head_title: str | None = Field(
-        default=None, description="Optional eyebrow/head title."
-    )
+    eyebrow: str | None = Field(default=None, description="Optional eyebrow text.")
     description: str | None = Field(
         default=None, description="Teaser description text."
     )
     preview_image: str | None = Field(default=None, description="Preview image URL.")
+    show_button: bool | None = Field(
+        default=None, description="Whether to show a call-to-action button."
+    )
+    button_label: str | None = Field(
+        default=None, description="Call-to-action button label."
+    )
+    alignment: Literal["default", "left", "center", "right"] | None = Field(
+        default=None,
+        description="Teaser alignment. Use 'default' to clear explicit alignment.",
+    )
+    button_style: str | None = Field(
+        default=None,
+        description="Button style preset, e.g. 'primary'. Use 'default' to clear.",
+    )
 
 
 class HighlightCreateAttributes(CreateAttributes):
@@ -287,12 +327,12 @@ class HighlightCreateAttributes(CreateAttributes):
     image_url: str = Field(description="Optional image URL.")
     title: str = Field(description="Highlight title.")
     html: str = Field(description="Highlight body HTML.")
-    button_show: bool = Field(description="Whether the CTA button is visible.")
-    button_text: str = Field(description="CTA button label.")
+    show_button: bool = Field(description="Whether the CTA button is visible.")
+    button_label: str = Field(description="CTA button label.")
     button_link: str = Field(description="CTA button destination.")
-    description_color: str | None = Field(
+    background_color: HighlightBackgroundColor | None = Field(
         default=None,
-        description="Background color for the description area. One of: light-blue, dark-teal, olive, yellow, light-green.",
+        description="Background color for the text panel.",
     )
 
 
@@ -305,14 +345,14 @@ class HighlightPatchAttributes(PatchAttributes):
         default=None,
         description="Full HTML or {old, new} for substring replacement. Highlight body HTML.",
     )
-    button_show: bool | None = Field(
+    show_button: bool | None = Field(
         default=None, description="Whether the CTA button is visible."
     )
-    button_text: str | None = Field(default=None, description="CTA button label.")
+    button_label: str | None = Field(default=None, description="CTA button label.")
     button_link: str | None = Field(default=None, description="CTA button destination.")
-    description_color: str | None = Field(
+    background_color: HighlightBackgroundColor | None = Field(
         default=None,
-        description="Background color for the description area. One of: light-blue, dark-teal, olive, yellow, light-green.",
+        description="Background color for the text panel.",
     )
 
 
@@ -325,7 +365,9 @@ class TableCreateAttributes(CreateAttributes):
     compact: bool = Field(description="Whether table spacing is compact.")
     fixed_column_width: bool = Field(description="Whether columns use fixed widths.")
     hide_headers: bool = Field(description="Whether the header row is hidden.")
-    inverted_colors: bool = Field(description="Whether the table uses inverted colors.")
+    dark_background: bool = Field(
+        description="Whether the table uses a dark background."
+    )
     striped_rows: bool = Field(description="Whether rows are striped.")
 
 
@@ -351,11 +393,45 @@ class TablePatchAttributes(PatchAttributes):
     hide_headers: bool | None = Field(
         default=None, description="Whether the header row is hidden."
     )
-    inverted_colors: bool | None = Field(
-        default=None, description="Whether the table uses inverted colors."
+    dark_background: bool | None = Field(
+        default=None, description="Whether the table uses a dark background."
     )
     striped_rows: bool | None = Field(
         default=None, description="Whether rows are striped."
+    )
+
+
+class ListingCreateAttributes(CreateAttributes):
+    """Dynamic content listing."""
+
+    heading: str = Field(description="Heading above the listing.")
+    heading_level: Literal[2, 3] = Field(description="Heading level: 2 or 3.")
+    query: ListingQuery = Field(description="Content query for listing results.")
+    display_variant: ListingDisplayVariant = Field(
+        default=ListingDisplayVariant.STANDARD,
+        description=(
+            "Display variant: standard, summary_list, news_list, two_column_grid, "
+            "text_card_grid, visual_card_grid, event_list, or horizontal_list."
+        ),
+    )
+
+
+class ListingPatchAttributes(PatchAttributes):
+    """Patch attributes for listing blocks."""
+
+    heading: str | None = Field(default=None, description="Heading above the listing.")
+    heading_level: Literal[2, 3] | None = Field(
+        default=None, description="Heading level: 2 or 3."
+    )
+    query: ListingQuery | None = Field(
+        default=None, description="Replaces the entire content query."
+    )
+    display_variant: ListingDisplayVariant | None = Field(
+        default=None,
+        description=(
+            "Display variant: standard, summary_list, news_list, two_column_grid, "
+            "text_card_grid, visual_card_grid, event_list, or horizontal_list."
+        ),
     )
 
 
@@ -363,7 +439,7 @@ class SlideCreateAttributes(CreateAttributes):
     """Slider slide."""
 
     link: str = Field(description="Optional destination URL/path.")
-    head_title: str = Field(description="Eyebrow/head title.")
+    eyebrow: str = Field(description="Eyebrow text.")
     title: str = Field(description="Slide title.")
     description: str = Field(description="Slide description.")
     preview_image: str = Field(description="Slide preview image URL.")
@@ -373,7 +449,7 @@ class SlidePatchAttributes(PatchAttributes):
     """Patch attributes for slide blocks."""
 
     link: str | None = Field(default=None, description="Optional destination URL/path.")
-    head_title: str | None = Field(default=None, description="Eyebrow/head title.")
+    eyebrow: str | None = Field(default=None, description="Eyebrow text.")
     title: str | None = Field(default=None, description="Slide title.")
     description: str | None = Field(default=None, description="Slide description.")
     preview_image: str | None = Field(
@@ -431,89 +507,121 @@ class SliderCreateAttributes(CreateAttributes):
     """Slider container."""
 
     autoplay: bool = Field(description="Whether slides autoplay.")
-    autoplay_delay: int = Field(description="Delay between slides in milliseconds.")
-    autoplay_jump: bool = Field(description="Whether autoplay jumps without animation.")
-    hide_arrows: bool = Field(description="Whether navigation arrows are hidden.")
+    autoplay_delay_ms: int = Field(description="Delay between slides in milliseconds.")
+    autoplay_transition: SliderAutoplayTransition = Field(
+        description="Autoplay transition style."
+    )
+    show_arrows: bool = Field(description="Whether navigation arrows are visible.")
 
 
 class SliderPatchAttributes(PatchAttributes):
     """Patch attributes for sliders."""
 
     autoplay: bool | None = Field(default=None, description="Whether slides autoplay.")
-    autoplay_delay: int | None = Field(
+    autoplay_delay_ms: int | None = Field(
         default=None, description="Delay between slides in milliseconds."
     )
-    autoplay_jump: bool | None = Field(
-        default=None, description="Whether autoplay jumps without animation."
+    autoplay_transition: SliderAutoplayTransition | None = Field(
+        default=None, description="Autoplay transition style."
     )
-    hide_arrows: bool | None = Field(
-        default=None, description="Whether navigation arrows are hidden."
+    show_arrows: bool | None = Field(
+        default=None, description="Whether navigation arrows are visible."
     )
 
 
 class CarouselCreateAttributes(CreateAttributes):
     """Carousel container."""
 
-    headline: str = Field(description="Carousel headline.")
+    heading: str = Field(description="Carousel heading.")
     visible_items: int = Field(description="Number of visible items.")
-    hide_description: bool = Field(description="Whether descriptions are hidden.")
+    show_descriptions: bool = Field(
+        description="Whether item descriptions are visible."
+    )
 
 
 class CarouselPatchAttributes(PatchAttributes):
     """Patch attributes for carousels."""
 
-    headline: str | None = Field(default=None, description="Carousel headline.")
+    heading: str | None = Field(default=None, description="Carousel heading.")
     visible_items: int | None = Field(
         default=None, description="Number of visible items."
     )
-    hide_description: bool | None = Field(
-        default=None, description="Whether descriptions are hidden."
+    show_descriptions: bool | None = Field(
+        default=None, description="Whether item descriptions are visible."
     )
 
 
 class ColumnsCreateAttributes(CreateAttributes):
     """Columns container."""
 
-    reverse_wrap: bool = Field(description="Whether wrapping order is reversed.")
+    reverse_stack_order: bool = Field(
+        description="Whether columns stack in reverse order on narrow screens."
+    )
 
 
 class ColumnsPatchAttributes(PatchAttributes):
     """Patch attributes for columns containers."""
 
-    reverse_wrap: bool | None = Field(
-        default=None, description="Whether wrapping order is reversed."
+    reverse_stack_order: bool | None = Field(
+        default=None,
+        description="Whether columns stack in reverse order on narrow screens.",
     )
 
 
 class AccordionCreateAttributes(CreateAttributes):
     """Accordion container."""
 
-    headline: str = Field(description="Headline shown above accordion.")
+    heading: str = Field(description="Heading shown above accordion.")
     title: str = Field(description="Accordion title text.")
-    right_arrows: bool = Field(description="Show right-facing chevrons.")
-    exclusive: bool = Field(description="Only one panel can be open at a time.")
-    collapsed: bool = Field(description="All panels start collapsed.")
-    filtering: bool = Field(description="Enable panel filtering UI.")
+    arrow_position: AccordionArrowPosition = Field(
+        default=AccordionArrowPosition.RIGHT,
+        description="Where panel expand/collapse arrows appear.",
+    )
+    single_panel_open: bool = Field(description="Only one panel can be open at a time.")
+    start_collapsed: bool = Field(description="All panels start collapsed.")
+    show_filter: bool = Field(description="Show panel filtering UI.")
+    heading_alignment: Literal["default", "left", "center", "right"] = Field(
+        default="default",
+        description="Heading alignment. Use 'default' to follow site defaults.",
+    )
+    heading_level: Literal[2, 3] = Field(
+        default=2, description="Heading level for the accordion title."
+    )
+    content_width: str = Field(
+        default="default",
+        description="Content width preset. Use 'default' when no explicit width is needed.",
+    )
 
 
 class AccordionPatchAttributes(PatchAttributes):
     """Patch attributes for accordion containers."""
 
-    headline: str | None = Field(
-        default=None, description="Headline shown above accordion."
+    heading: str | None = Field(
+        default=None, description="Heading shown above accordion."
     )
     title: str | None = Field(default=None, description="Accordion title text.")
-    right_arrows: bool | None = Field(
-        default=None, description="Show right-facing chevrons."
+    arrow_position: AccordionArrowPosition | None = Field(
+        default=None, description="Where panel expand/collapse arrows appear."
     )
-    exclusive: bool | None = Field(
+    single_panel_open: bool | None = Field(
         default=None, description="Only one panel can be open at a time."
     )
-    collapsed: bool | None = Field(
+    start_collapsed: bool | None = Field(
         default=None, description="All panels start collapsed."
     )
-    filtering: bool | None = Field(
-        default=None, description="Enable panel filtering UI."
+    show_filter: bool | None = Field(
+        default=None, description="Show panel filtering UI."
+    )
+    heading_alignment: Literal["default", "left", "center", "right"] | None = Field(
+        default=None,
+        description="Heading alignment. Use 'default' to clear explicit alignment.",
+    )
+    heading_level: Literal[2, 3] | None = Field(
+        default=None, description="Heading level for the accordion title."
+    )
+    content_width: str | None = Field(
+        default=None,
+        description="Content width preset. Use 'default' to clear an explicit width.",
     )
 
 
@@ -526,17 +634,22 @@ _HTML_DESCRIPTION = (
 class QuoteCreateAttributes(CreateAttributes):
     """Blockquote with attribution."""
 
-    html: str = Field(description="Quote text HTML. " + _HTML_DESCRIPTION)
-    source_html: str = Field(default="", description="Attribution HTML.")
-    extra_html: str = Field(default="", description="Extra context HTML.")
-    variation: Literal["default", "testimonial"] = Field(
-        default="default", description="Visual variation."
+    html: str = Field(
+        description="Quote text HTML. The block renders with quotation marks automatically — do not add them. "
+        + _HTML_DESCRIPTION
     )
-    position: Literal["left", "center", "right"] | None = Field(
-        default=None, description="Quote alignment."
+    attribution_html: str = Field(default="", description="Attribution HTML.")
+    context_html: str = Field(default="", description="Extra context HTML.")
+    display_variant: QuoteDisplayVariant = Field(
+        default=QuoteDisplayVariant.STANDARD, description="Visual variant."
     )
-    reversed: bool = Field(default=False, description="Show source before quote.")
-    title_html: str = Field(default="", description="Testimonial title HTML.")
+    alignment: Literal["default", "left", "center", "right"] = Field(
+        default="default", description="Quote alignment."
+    )
+    attribution_first: bool = Field(
+        default=False, description="Show attribution before quote."
+    )
+    role_html: str = Field(default="", description="Testimonial role/title HTML.")
     image_url: str = Field(default="", description="Testimonial image URL.")
 
 
@@ -547,24 +660,26 @@ class QuotePatchAttributes(PatchAttributes):
         default=None,
         description="Full HTML or {old, new} for substring replacement. Quote text.",
     )
-    source_html: HtmlPatch | str | None = Field(
+    attribution_html: HtmlPatch | str | None = Field(
         default=None,
         description="Full HTML or {old, new} for substring replacement. Attribution.",
     )
-    extra_html: HtmlPatch | str | None = Field(
+    context_html: HtmlPatch | str | None = Field(
         default=None,
         description="Full HTML or {old, new} for substring replacement. Extra context.",
     )
-    variation: Literal["default", "testimonial"] | None = Field(
-        default=None, description="Visual variation."
+    display_variant: QuoteDisplayVariant | None = Field(
+        default=None, description="Visual variant."
     )
-    position: Literal["left", "center", "right"] | None = Field(
+    alignment: Literal["default", "left", "center", "right"] | None = Field(
         default=None, description="Quote alignment."
     )
-    reversed: bool | None = Field(default=None, description="Show source before quote.")
-    title_html: HtmlPatch | str | None = Field(
+    attribution_first: bool | None = Field(
+        default=None, description="Show attribution before quote."
+    )
+    role_html: HtmlPatch | str | None = Field(
         default=None,
-        description="Full HTML or {old, new} for substring replacement. Testimonial title.",
+        description="Full HTML or {old, new} for substring replacement. Testimonial role/title.",
     )
     image_url: str | None = Field(default=None, description="Testimonial image URL.")
 
@@ -594,12 +709,14 @@ class StatisticItemPatchAttributes(PatchAttributes):
 class StatisticCreateAttributes(CreateAttributes):
     """Statistic / KPI display container."""
 
-    horizontal: bool = Field(default=False, description="Horizontal layout.")
-    inverted: bool = Field(default=False, description="Dark background.")
+    horizontal_layout: bool = Field(default=False, description="Horizontal layout.")
+    dark_background: bool = Field(default=False, description="Dark background.")
     size: Literal["mini", "tiny", "small", "large", "huge"] = Field(
         default="small", description="Display size."
     )
-    widths: Literal[1, 2, 3, 4] = Field(default=1, description="Column count (1-4).")
+    items_per_row: Literal[1, 2, 3, 4] = Field(
+        default=1, description="Statistic items per row (1-4)."
+    )
     animation_enabled: bool = Field(
         default=False, description="Enable count-up animation."
     )
@@ -614,13 +731,15 @@ class StatisticCreateAttributes(CreateAttributes):
 class StatisticPatchAttributes(PatchAttributes):
     """Patch attributes for statistic containers."""
 
-    horizontal: bool | None = Field(default=None, description="Horizontal layout.")
-    inverted: bool | None = Field(default=None, description="Dark background.")
+    horizontal_layout: bool | None = Field(
+        default=None, description="Horizontal layout."
+    )
+    dark_background: bool | None = Field(default=None, description="Dark background.")
     size: Literal["mini", "tiny", "small", "large", "huge"] | None = Field(
         default=None, description="Display size."
     )
-    widths: Literal[1, 2, 3, 4] | None = Field(
-        default=None, description="Column count (1-4)."
+    items_per_row: Literal[1, 2, 3, 4] | None = Field(
+        default=None, description="Statistic items per row (1-4)."
     )
     animation_enabled: bool | None = Field(
         default=None, description="Enable count-up animation."
@@ -639,12 +758,16 @@ class FormFieldCreateAttributes(CreateAttributes):
     label: str = Field(description="Field label.")
     description: str = Field(default="", description="Help text.")
     required: bool = Field(default=False, description="Required field.")
-    kind: Literal["text", "textarea", "number", "email", "date", "attachment"] = Field(
-        description="Input type."
+    input_type: Literal["text", "textarea", "number", "email", "date", "attachment"] = (
+        Field(description="Input type.")
     )
-    send_copy: bool = Field(
+    use_as_reply_to: bool = Field(
         default=False,
         description="Use this email as the reply-to address (only for email fields).",
+    )
+    show_when: list[FieldVisibilityRule] = Field(
+        default_factory=list,
+        description="Rules that show this field only when another field matches.",
     )
 
 
@@ -654,12 +777,16 @@ class FormFieldPatchAttributes(PatchAttributes):
     label: str | None = Field(default=None, description="Field label.")
     description: str | None = Field(default=None, description="Help text.")
     required: bool | None = Field(default=None, description="Required field.")
-    kind: (
+    input_type: (
         Literal["text", "textarea", "number", "email", "date", "attachment"] | None
     ) = Field(default=None, description="Input type.")
-    send_copy: bool | None = Field(
+    use_as_reply_to: bool | None = Field(
         default=None,
         description="Use this email as the reply-to address (only for email fields).",
+    )
+    show_when: list[FieldVisibilityRule] | None = Field(
+        default=None,
+        description="Rules that show this field only when another field matches.",
     )
 
 
@@ -669,11 +796,15 @@ class FormChoiceCreateAttributes(CreateAttributes):
     label: str = Field(description="Field label.")
     description: str = Field(default="", description="Help text.")
     required: bool = Field(default=False, description="Required field.")
-    kind: Literal["select", "radio", "checkbox"] = Field(
+    input_type: Literal["select", "radio", "checkbox"] = Field(
         description="Presentation: 'select' (dropdown), 'radio' (single choice), 'checkbox' (multiple choice)."
     )
     options: list[str] = Field(default_factory=list, description="Choice options.")
     default: str = Field(default="", description="Pre-selected option.")
+    show_when: list[FieldVisibilityRule] = Field(
+        default_factory=list,
+        description="Rules that show this field only when another field matches.",
+    )
 
 
 class FormChoicePatchAttributes(PatchAttributes):
@@ -682,11 +813,15 @@ class FormChoicePatchAttributes(PatchAttributes):
     label: str | None = Field(default=None, description="Field label.")
     description: str | None = Field(default=None, description="Help text.")
     required: bool | None = Field(default=None, description="Required field.")
-    kind: Literal["select", "radio", "checkbox"] | None = Field(
+    input_type: Literal["select", "radio", "checkbox"] | None = Field(
         default=None, description="Presentation: 'select', 'radio', or 'checkbox'."
     )
     options: list[str] | None = Field(default=None, description="Choice options.")
     default: str | None = Field(default=None, description="Pre-selected option.")
+    show_when: list[FieldVisibilityRule] | None = Field(
+        default=None,
+        description="Rules that show this field only when another field matches.",
+    )
 
 
 class FormCreateAttributes(CreateAttributes):
@@ -694,12 +829,18 @@ class FormCreateAttributes(CreateAttributes):
 
     title: str = Field(description="Form title.")
     description: str = Field(default="", description="Form description.")
-    submit_label: str = Field(default="Submit", description="Submit button label.")
-    show_cancel: bool = Field(default=False, description="Show cancel button.")
-    cancel_label: str = Field(default="", description="Cancel button label.")
-    recipient_email: str = Field(description="Recipient email address.")
-    subject: str = Field(default="", description="Email subject line.")
-    metadata: dict[str, str] = Field(
+    submit_button_label: str = Field(
+        default="Submit", description="Submit button label."
+    )
+    show_cancel_button: bool = Field(default=False, description="Show cancel button.")
+    cancel_button_label: str = Field(default="", description="Cancel button label.")
+    recipient_address: str = Field(description="Recipient email address.")
+    email_subject: str = Field(default="", description="Email subject line.")
+    heading_alignment: Literal["default", "left", "center", "right"] = Field(
+        default="default",
+        description="Form heading alignment. Use 'default' to follow site defaults.",
+    )
+    hidden_fields: dict[str, str] = Field(
         default_factory=dict,
         description="Hidden key-value pairs submitted with the form.",
     )
@@ -710,14 +851,24 @@ class FormPatchAttributes(PatchAttributes):
 
     title: str | None = Field(default=None, description="Form title.")
     description: str | None = Field(default=None, description="Form description.")
-    submit_label: str | None = Field(default=None, description="Submit button label.")
-    show_cancel: bool | None = Field(default=None, description="Show cancel button.")
-    cancel_label: str | None = Field(default=None, description="Cancel button label.")
-    recipient_email: str | None = Field(
+    submit_button_label: str | None = Field(
+        default=None, description="Submit button label."
+    )
+    show_cancel_button: bool | None = Field(
+        default=None, description="Show cancel button."
+    )
+    cancel_button_label: str | None = Field(
+        default=None, description="Cancel button label."
+    )
+    recipient_address: str | None = Field(
         default=None, description="Recipient email address."
     )
-    subject: str | None = Field(default=None, description="Email subject line.")
-    metadata: dict[str, str] | None = Field(
+    email_subject: str | None = Field(default=None, description="Email subject line.")
+    heading_alignment: Literal["default", "left", "center", "right"] | None = Field(
+        default=None,
+        description="Form heading alignment. Use 'default' to clear explicit alignment.",
+    )
+    hidden_fields: dict[str, str] | None = Field(
         default=None,
         description="Hidden key-value pairs submitted with the form (replaces entire dict).",
     )
@@ -740,15 +891,11 @@ class TabsCreateAttributes(CreateAttributes):
 
     title: str = Field(default="", description="Block title.")
     description: str = Field(default="", description="Block description.")
-    variation: Literal[
-        "default",
-        "accordion",
-        "horizontal-responsive",
-        "carousel-horizontal",
-        "carousel-vertical",
-    ] = Field(default="default", description="Display variation.")
-    hide_empty_tabs: bool = Field(
-        default=False, description="Hide tabs with no content."
+    display_variant: TabsDisplayVariant = Field(
+        default=TabsDisplayVariant.STANDARD, description="Display variant."
+    )
+    show_empty_tabs: bool = Field(
+        default=True, description="Whether tabs with no content are visible."
     )
 
 
@@ -757,18 +904,11 @@ class TabsPatchAttributes(PatchAttributes):
 
     title: str | None = Field(default=None, description="Block title.")
     description: str | None = Field(default=None, description="Block description.")
-    variation: (
-        Literal[
-            "default",
-            "accordion",
-            "horizontal-responsive",
-            "carousel-horizontal",
-            "carousel-vertical",
-        ]
-        | None
-    ) = Field(default=None, description="Display variation.")
-    hide_empty_tabs: bool | None = Field(
-        default=None, description="Hide tabs with no content."
+    display_variant: TabsDisplayVariant | None = Field(
+        default=None, description="Display variant."
+    )
+    show_empty_tabs: bool | None = Field(
+        default=None, description="Whether tabs with no content are visible."
     )
 
 
@@ -907,6 +1047,15 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         "Patch a `table` element. HTML accepts a full string or {old, new} for substring replacement.",
     ),
     BlockSpec(
+        "listing",
+        ListingBlock,
+        ListingAttributes,
+        ListingCreateAttributes,
+        ListingPatchAttributes,
+        "Create a `listing` element for dynamic content results.",
+        "Patch attributes on an existing `listing` element. Only provided fields are changed.",
+    ),
+    BlockSpec(
         "slide",
         SlideBlock,
         SlideAttributes,
@@ -1011,7 +1160,7 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         FormFieldAttributes,
         FormFieldCreateAttributes,
         FormFieldPatchAttributes,
-        "Create a `form_field` (text, textarea, number, email, date, or attachment) inside a form. Set `kind` accordingly.",
+        "Create a `form_field` (text, textarea, number, email, date, or attachment) inside a form. Set `input_type` accordingly.",
         "Patch attributes on an existing `form_field`. Only provided fields are changed.",
     ),
     BlockSpec(
@@ -1020,7 +1169,7 @@ BLOCK_SPECS: tuple[BlockSpec, ...] = (
         FormChoiceAttributes,
         FormChoiceCreateAttributes,
         FormChoicePatchAttributes,
-        "Create a `form_choice` (dropdown, radio, or checkbox) inside a form. Set `kind` to 'select', 'radio', or 'checkbox'.",
+        "Create a `form_choice` (dropdown, radio, or checkbox) inside a form. Set `input_type` to 'select', 'radio', or 'checkbox'.",
         "Patch attributes on an existing `form_choice`. Only provided fields are changed.",
     ),
     BlockSpec(
@@ -1061,6 +1210,7 @@ CHILD_TYPES: dict[str, str] = {
     "carousel": "carousel_item",
     "columns": "column",
     "accordion": "accordion_panel",
+    "listing": "listing_item",
     "statistic": "statistic_item",
     "tabs": "tab",
 }

@@ -14,7 +14,7 @@ _PROMPT_FILES: dict[tuple[str, ...], str] = {
 }
 
 # Additional prompt files that are always appended to the main prompt.
-_EXTRA_PROMPTS: list[str] = ["agent.md", "notes.md"]
+_EXTRA_PROMPTS: list[str] = []
 
 
 @functools.lru_cache(maxsize=None)

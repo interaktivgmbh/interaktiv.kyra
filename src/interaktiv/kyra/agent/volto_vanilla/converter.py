@@ -7,7 +7,19 @@ from html import escape as _esc
 from collections.abc import Callable
 from typing import Any
 
-from .schema import Layout, Metadata, PageState
+from .schema import (
+    HighlightBackgroundColor,
+    ImageSize,
+    SliderAutoplayTransition,
+    AccordionArrowPosition,
+    FieldVisibilityOperator,
+    Layout,
+    ListingDisplayVariant,
+    Metadata,
+    PageState,
+    QuoteDisplayVariant,
+    TabsDisplayVariant,
+)
 
 
 class ConversionError(Exception):
@@ -18,12 +30,12 @@ class ConversionError(Exception):
 # Highlight description color mapping (Volto CSS class → IR name)
 # ---------------------------------------------------------------------------
 
-_VOLTO_COLOR_TO_IR: dict[str, str] = {
-    "highlight-custom-color-1": "light-blue",
-    "highlight-custom-color-2": "dark-teal",
-    "highlight-custom-color-3": "yellow",
-    "highlight-custom-color-4": "light-green",
-    "highlight-custom-color-5": "olive",
+_VOLTO_COLOR_TO_IR: dict[str, HighlightBackgroundColor] = {
+    "highlight-custom-color-1": HighlightBackgroundColor.LIGHT_BLUE,
+    "highlight-custom-color-2": HighlightBackgroundColor.DARK_TEAL,
+    "highlight-custom-color-3": HighlightBackgroundColor.YELLOW,
+    "highlight-custom-color-4": HighlightBackgroundColor.LIGHT_GREEN,
+    "highlight-custom-color-5": HighlightBackgroundColor.OLIVE,
 }
 
 # ---------------------------------------------------------------------------
@@ -49,6 +61,12 @@ _GRID_COL_WIDTHS: dict[str, int] = {
     "halfWidthBig": 2,
     "twoThirds": 2,
     "threeFourths": 3,
+}
+
+_VOLTO_IMAGE_SIZE_TO_IR: dict[str, ImageSize] = {
+    "s": ImageSize.SMALL,
+    "m": ImageSize.MEDIUM,
+    "l": ImageSize.LARGE,
 }
 
 
@@ -174,6 +192,140 @@ def _extract_preview_image(preview_image: Any) -> str:
 def _string_or_empty(value: Any) -> str:
     """Normalize nullable string-like Volto values."""
     return value if isinstance(value, str) else ""
+
+
+def _first_string(raw: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str):
+            return value
+    return ""
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _style_value(raw: dict[str, Any], key: str, default: str = "default") -> str:
+    styles = raw.get("styles")
+    if isinstance(styles, dict):
+        value = styles.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return default
+
+
+def _alignment_value(raw: dict[str, Any], key: str) -> str:
+    value = _style_value(raw, key)
+    return value if value in {"default", "left", "center", "right"} else "default"
+
+
+_VOLTO_TO_LISTING_DISPLAY_VARIANT: dict[str, ListingDisplayVariant] = {
+    "default": ListingDisplayVariant.STANDARD,
+    "summary": ListingDisplayVariant.SUMMARY_LIST,
+    "news": ListingDisplayVariant.NEWS_LIST,
+    "grid2": ListingDisplayVariant.TWO_COLUMN_GRID,
+    "textCards": ListingDisplayVariant.TEXT_CARD_GRID,
+    "visualGrid": ListingDisplayVariant.VISUAL_CARD_GRID,
+    "events": ListingDisplayVariant.EVENT_LIST,
+    "horizontalList": ListingDisplayVariant.HORIZONTAL_LIST,
+}
+
+
+def _listing_display_variant(raw: Any) -> ListingDisplayVariant:
+    if not isinstance(raw, str):
+        return ListingDisplayVariant.STANDARD
+    return _VOLTO_TO_LISTING_DISPLAY_VARIANT.get(raw, ListingDisplayVariant.STANDARD)
+
+
+_VOLTO_TO_QUOTE_DISPLAY_VARIANT: dict[str, QuoteDisplayVariant] = {
+    "default": QuoteDisplayVariant.STANDARD,
+    "testimonial": QuoteDisplayVariant.TESTIMONIAL,
+}
+
+
+def _quote_display_variant(raw: Any) -> QuoteDisplayVariant:
+    if not isinstance(raw, str):
+        return QuoteDisplayVariant.STANDARD
+    return _VOLTO_TO_QUOTE_DISPLAY_VARIANT.get(raw, QuoteDisplayVariant.STANDARD)
+
+
+_VOLTO_TO_TABS_DISPLAY_VARIANT: dict[str, TabsDisplayVariant] = {
+    "default": TabsDisplayVariant.STANDARD,
+    "accordion": TabsDisplayVariant.ACCORDION,
+    "horizontal-responsive": TabsDisplayVariant.RESPONSIVE_TABS,
+    "carousel-horizontal": TabsDisplayVariant.HORIZONTAL_CAROUSEL,
+    "carousel-vertical": TabsDisplayVariant.VERTICAL_CAROUSEL,
+}
+
+
+def _tabs_display_variant(raw: Any) -> TabsDisplayVariant:
+    if not isinstance(raw, str):
+        return TabsDisplayVariant.STANDARD
+    return _VOLTO_TO_TABS_DISPLAY_VARIANT.get(raw, TabsDisplayVariant.STANDARD)
+
+
+def _heading_level_from_tag(value: Any, default: int = 2) -> int:
+    return 3 if value == "h3" else default
+
+
+_VOLTO_TO_FIELD_VISIBILITY_OPERATOR: dict[str, FieldVisibilityOperator] = {
+    "is_not_empty": FieldVisibilityOperator.FILLED,
+    "is_empty": FieldVisibilityOperator.EMPTY,
+    "equals": FieldVisibilityOperator.EQUALS,
+    "equal": FieldVisibilityOperator.EQUALS,
+    "is": FieldVisibilityOperator.EQUALS,
+    "not_equals": FieldVisibilityOperator.NOT_EQUALS,
+    "not_equal": FieldVisibilityOperator.NOT_EQUALS,
+    "is_not": FieldVisibilityOperator.NOT_EQUALS,
+    "contains": FieldVisibilityOperator.CONTAINS,
+    "not_contains": FieldVisibilityOperator.NOT_CONTAINS,
+}
+
+
+def _show_when_rules_to_ir(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        field_id = item.get("field_id")
+        if not isinstance(field_id, str) or not field_id:
+            field = item.get("field")
+            if isinstance(field, dict):
+                field_id = _first_string(field, "value", "text")
+        condition = item.get("condition")
+        if not isinstance(field_id, str) or not field_id:
+            continue
+        if not isinstance(condition, str) or not condition:
+            continue
+        operator = _VOLTO_TO_FIELD_VISIBILITY_OPERATOR.get(condition)
+        if operator is None:
+            continue
+        expected_value = item.get("value_condition")
+        if (
+            operator
+            in (
+                FieldVisibilityOperator.EQUALS,
+                FieldVisibilityOperator.NOT_EQUALS,
+                FieldVisibilityOperator.CONTAINS,
+                FieldVisibilityOperator.NOT_CONTAINS,
+            )
+            and expected_value is None
+        ):
+            continue
+        converted: dict[str, Any] = {
+            "field_id": field_id,
+            "operator": operator.value,
+        }
+        if expected_value is not None:
+            converted["expected_value"] = str(expected_value)
+        result.append(converted)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +526,10 @@ def _convert_slate(
         "id": uid,
         "path": path,
         "name": names.next("rich_text"),
-        "attributes": {"html": _slate_to_html(raw.get("value", []))},
+        "attributes": {
+            "html": _slate_to_html(raw.get("value", [])),
+            "content_width": _style_value(raw, "blockWidth"),
+        },
     }
 
 
@@ -434,7 +589,11 @@ def _convert_image(
             "image_url": raw.get("url", ""),
             "alt_text": raw.get("alt", ""),
             "alignment": raw.get("align", "center"),
-            "size": raw.get("size", "l"),
+            "size": (
+                _VOLTO_IMAGE_SIZE_TO_IR.get(raw["size"], ImageSize.LARGE)
+                if isinstance(raw.get("size"), str)
+                else ImageSize.LARGE
+            ),
             "link": _extract_href(raw.get("href")),
             "open_link_in_new_tab": raw.get("openLinkInNewTab", False),
         },
@@ -497,7 +656,7 @@ def _convert_button(
         "attributes": {
             "title": raw.get("title", ""),
             "link": _extract_href(raw.get("href")),
-            "inner_alignment": raw.get("inneralign", "left"),
+            "alignment": raw.get("inneralign", "left"),
             "open_link_in_new_tab": raw.get("openLinkInNewTab", False),
         },
     }
@@ -518,11 +677,15 @@ def _convert_teaser(
         "name": names.next("teaser"),
         "attributes": {
             "link": _extract_href(raw.get("href")),
-            "overwrite": raw.get("overwrite", False),
+            "use_custom_content": raw.get("overwrite", False),
             "title": raw.get("title", ""),
-            "head_title": _string_or_empty(raw.get("head_title", "")),
+            "eyebrow": _string_or_empty(raw.get("head_title", "")),
             "description": raw.get("description", ""),
             "preview_image": _extract_preview_image(raw.get("preview_image")),
+            "show_button": raw.get("showButton", False),
+            "button_label": raw.get("buttonText", ""),
+            "alignment": _alignment_value(raw, "align"),
+            "button_style": _style_value(raw, "buttonColor"),
         },
     }
 
@@ -546,10 +709,10 @@ def _convert_highlight(
             "image_url": raw.get("url", ""),
             "title": raw.get("title", ""),
             "html": _slate_to_html(raw.get("value", [])),
-            "button_show": bool(raw.get("button", True)),
-            "button_text": raw.get("buttonText", ""),
+            "show_button": bool(raw.get("button", True)),
+            "button_label": raw.get("buttonText", ""),
             "button_link": _extract_href(raw.get("buttonLink")),
-            "description_color": ir_color,
+            "background_color": ir_color,
         },
     }
 
@@ -575,9 +738,121 @@ def _convert_table(
             "compact": table.get("compact", False),
             "fixed_column_width": table.get("fixed", False),
             "hide_headers": table.get("hideHeaders", False),
-            "inverted_colors": table.get("inverted", False),
+            "dark_background": table.get("inverted", False),
             "striped_rows": table.get("striped", False),
         },
+    }
+
+
+def _querystring_to_listing_query(raw_querystring: dict[str, Any]) -> dict[str, Any]:
+    filters: list[dict[str, Any]] = []
+
+    for raw_filter in raw_querystring.get("query", []):
+        if not isinstance(raw_filter, dict):
+            continue
+        index = raw_filter.get("i", "")
+        op = raw_filter.get("o", "")
+        value = raw_filter.get("v")
+
+        if index == "path":
+            paths = [
+                p for p in ([value] if isinstance(value, str) else value or []) if p
+            ]
+            if paths:
+                filters.append({"type": "path", "paths": paths})
+            continue
+
+        if index in ("portal_type", "content_type", "Type"):
+            content_types = (
+                [value] if isinstance(value, str) else [v for v in value or [] if v]
+            )
+            if content_types:
+                filters.append({"type": "content_type", "content_types": content_types})
+            continue
+
+        if index in ("Subject", "subjects", "subject"):
+            subjects = (
+                [value] if isinstance(value, str) else [v for v in value or [] if v]
+            )
+            if subjects:
+                filters.append(
+                    {
+                        "type": "subject",
+                        "subjects": subjects,
+                        "operator": "all" if "all" in op else "any",
+                    }
+                )
+            continue
+
+        if index in ("created", "modified", "effective", "published", "start", "end"):
+            if not value:
+                continue
+            date_filter: dict[str, Any] = {"type": "date", "field": index}
+            if any(marker in op for marker in ("less", "max", "before")):
+                date_filter["before"] = value
+            else:
+                date_filter["after"] = value
+            filters.append(date_filter)
+
+    return {
+        "filters": filters,
+        "sort_on": raw_querystring.get("sort_on", ""),
+        "sort_order": raw_querystring.get("sort_order", "ascending"),
+        "limit": _int_or_default(
+            raw_querystring.get("limit", raw_querystring.get("b_size")), 10
+        ),
+    }
+
+
+def _convert_listing(
+    uid: str,
+    raw: dict[str, Any],
+    path: str,
+    page_title: str,
+    page_description: str,
+    names: _NameCounter,
+) -> dict[str, Any]:
+    listing_name = names.next("listing")
+    child_path = _child_path(path, listing_name)
+    tag = raw.get("headlineTag", "h2")
+    querystring_raw = raw.get("querystring")
+    querystring: dict[str, Any] = (
+        querystring_raw if isinstance(querystring_raw, dict) else {}
+    )
+
+    children: list[dict[str, Any]] = []
+    for i, item in enumerate(raw.get("items", [])):
+        if not isinstance(item, dict):
+            continue
+        children.append(
+            {
+                "type": "listing_item",
+                "id": item.get("@id", f"{uid}-item-{i + 1}"),
+                "path": child_path,
+                "name": f"listing_item_{i + 1}",
+                "attributes": {
+                    "content_path": item.get("@id", ""),
+                    "title": item.get("title", item.get("Title", "")),
+                    "description": item.get("description", item.get("Description", "")),
+                    "content_type": item.get("@type", item.get("content_type", "")),
+                    "preview_image": _extract_preview_image(item.get("preview_image")),
+                    "published": item.get("published") or item.get("effective"),
+                },
+            }
+        )
+
+    return {
+        "type": "listing",
+        "id": uid,
+        "path": path,
+        "name": listing_name,
+        "attributes": {
+            "heading": raw.get("headline", ""),
+            "heading_level": 3 if tag == "h3" else 2,
+            "query": _querystring_to_listing_query(querystring),
+            "display_variant": _listing_display_variant(raw.get("variation")),
+        },
+        "children": children,
     }
 
 
@@ -603,7 +878,7 @@ def _convert_slider(
                 "name": names.next("slide"),
                 "attributes": {
                     "link": _extract_href(slide_raw.get("href")),
-                    "head_title": slide_raw.get("head_title", ""),
+                    "eyebrow": slide_raw.get("head_title", ""),
                     "title": slide_raw.get("title", ""),
                     "description": slide_raw.get("description", ""),
                     "preview_image": _extract_preview_image(
@@ -620,9 +895,13 @@ def _convert_slider(
         "name": slider_name,
         "attributes": {
             "autoplay": raw.get("autoplayEnabled", False),
-            "autoplay_delay": raw.get("autoplayDelay", 5000),
-            "autoplay_jump": raw.get("autoplayJump", False),
-            "hide_arrows": raw.get("hideArrows", False),
+            "autoplay_delay_ms": raw.get("autoplayDelay", 5000),
+            "autoplay_transition": (
+                SliderAutoplayTransition.JUMP
+                if raw.get("autoplayJump", False)
+                else SliderAutoplayTransition.SLIDE
+            ),
+            "show_arrows": not raw.get("hideArrows", False),
         },
         "children": slides,
     }
@@ -671,9 +950,9 @@ def _convert_carousel(
         "path": path,
         "name": carousel_name,
         "attributes": {
-            "headline": raw.get("headline", ""),
+            "heading": raw.get("headline", ""),
             "visible_items": visible_items,
-            "hide_description": raw.get("hideDescription", False),
+            "show_descriptions": not raw.get("hideDescription", False),
         },
         "children": items,
     }
@@ -734,7 +1013,7 @@ def _convert_columns(
         "id": uid,
         "path": path,
         "name": columns_name,
-        "attributes": {"reverse_wrap": False},
+        "attributes": {"reverse_stack_order": False},
         "children": columns,
     }
 
@@ -789,12 +1068,19 @@ def _convert_accordion(
         "path": path,
         "name": accordion_name,
         "attributes": {
-            "headline": raw.get("headline", ""),
+            "heading": raw.get("headline", ""),
             "title": raw.get("title", ""),
-            "right_arrows": raw.get("right_arrows", True),
-            "exclusive": not raw.get("non_exclusive", True),
-            "collapsed": raw.get("collapsed", True),
-            "filtering": raw.get("filtering", False),
+            "arrow_position": (
+                AccordionArrowPosition.RIGHT
+                if raw.get("right_arrows", True)
+                else AccordionArrowPosition.LEFT
+            ),
+            "single_panel_open": not raw.get("non_exclusive", True),
+            "start_collapsed": raw.get("collapsed", True),
+            "show_filter": raw.get("filtering", False),
+            "heading_alignment": _alignment_value(raw, "headlineAlign"),
+            "heading_level": _heading_level_from_tag(raw.get("title_size", "h2")),
+            "content_width": _style_value(raw, "blockWidth"),
         },
         "children": panels,
     }
@@ -815,12 +1101,12 @@ def _convert_quote(
         "name": names.next("quote"),
         "attributes": {
             "html": _slate_to_html(raw.get("value", [])),
-            "source_html": _slate_to_html(raw.get("source", [])),
-            "extra_html": _slate_to_html(raw.get("extra", [])),
-            "variation": raw.get("variation", "default"),
-            "position": raw.get("position"),
-            "reversed": raw.get("reversed", False),
-            "title_html": (
+            "attribution_html": _slate_to_html(raw.get("source", [])),
+            "context_html": _slate_to_html(raw.get("extra", [])),
+            "display_variant": _quote_display_variant(raw.get("variation")),
+            "alignment": raw.get("position") or "default",
+            "attribution_first": raw.get("reversed", False),
+            "role_html": (
                 _slate_to_html(raw.get("title", []))
                 if isinstance(raw.get("title"), list)
                 else ""
@@ -878,10 +1164,10 @@ def _convert_statistic(
         "path": path,
         "name": container_name,
         "attributes": {
-            "horizontal": raw.get("horizontal", False),
-            "inverted": raw.get("inverted", False),
+            "horizontal_layout": raw.get("horizontal", False),
+            "dark_background": raw.get("inverted", False),
             "size": raw.get("size", "small"),
-            "widths": widths_int,
+            "items_per_row": widths_int,
             "animation_enabled": bool(animation.get("enabled", False)),
             "animation_duration": float(animation.get("duration", 5)),
             "animation_decimals": int(animation.get("decimals", 0)),
@@ -930,12 +1216,12 @@ def _convert_form(
     child_path = _child_path(path, container_name)
 
     children: list[dict[str, Any]] = []
-    metadata: dict[str, str] = {}
+    hidden_fields: dict[str, str] = {}
     for sub in raw.get("subblocks", []):
         field_type = sub.get("field_type", "text")
 
         if field_type == "hidden":
-            metadata[sub.get("label", "")] = sub.get("value", "")
+            hidden_fields[sub.get("label", "")] = sub.get("value", "")
             continue
 
         ir_type = _VOLTO_FIELD_TYPE_TO_IR.get(field_type, "form_field")
@@ -956,14 +1242,15 @@ def _convert_form(
             "label": sub.get("label", ""),
             "description": sub.get("description", ""),
             "required": sub.get("required", False),
+            "show_when": _show_when_rules_to_ir(sub.get("visibility_conditions")),
         }
 
         if ir_type == "form_field":
-            attrs["kind"] = _VOLTO_FIELD_KIND.get(field_type, "text")
-            attrs["send_copy"] = sub.get("use_as_reply_to", False)
+            attrs["input_type"] = _VOLTO_FIELD_KIND.get(field_type, "text")
+            attrs["use_as_reply_to"] = sub.get("use_as_reply_to", False)
 
         if ir_type == "form_choice":
-            attrs["kind"] = _VOLTO_FIELD_KIND.get(field_type, "select")
+            attrs["input_type"] = _VOLTO_FIELD_KIND.get(field_type, "select")
             attrs["options"] = sub.get("input_values", [])
             attrs["default"] = sub.get("default_value", "")
 
@@ -985,12 +1272,13 @@ def _convert_form(
         "attributes": {
             "title": raw.get("title", ""),
             "description": raw.get("description", ""),
-            "submit_label": raw.get("submit_label", "Submit"),
-            "show_cancel": raw.get("show_cancel", False),
-            "cancel_label": raw.get("cancel_label", ""),
-            "recipient_email": raw.get("default_to", ""),
-            "subject": raw.get("default_subject", ""),
-            "metadata": metadata,
+            "submit_button_label": raw.get("submit_label", "Submit"),
+            "show_cancel_button": raw.get("show_cancel", False),
+            "cancel_button_label": raw.get("cancel_label", ""),
+            "recipient_address": raw.get("default_to", ""),
+            "email_subject": raw.get("default_subject", ""),
+            "heading_alignment": _alignment_value(raw, "headlineAlign"),
+            "hidden_fields": hidden_fields,
         },
         "children": children,
     }
@@ -1047,88 +1335,10 @@ def _convert_tabs(
         "attributes": {
             "title": raw.get("title", ""),
             "description": raw.get("description", ""),
-            "variation": raw.get("variation", "default"),
-            "hide_empty_tabs": raw.get("hideEmptyTabs", False),
+            "display_variant": _tabs_display_variant(raw.get("variation")),
+            "show_empty_tabs": not raw.get("hideEmptyTabs", False),
         },
         "children": children,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Listing
-# ---------------------------------------------------------------------------
-
-_VOLTO_QUERY_OP_TO_FILTER_TYPE: dict[str, str] = {
-    "plone.app.querystring.operation.string.absolutePath": "path",
-    "plone.app.querystring.operation.selection.any": "content_type",
-    "plone.app.querystring.operation.list.contains": "subject",
-    "plone.app.querystring.operation.date.afterToday": "date",
-    "plone.app.querystring.operation.date.beforeToday": "date",
-    "plone.app.querystring.operation.date.between": "date",
-}
-
-
-def _convert_listing(
-    uid: str,
-    raw: dict[str, Any],
-    path: str,
-    page_title: str,
-    page_description: str,
-    names: _NameCounter,
-) -> dict[str, Any]:
-    container_name = names.next("listing")
-
-    qs = raw.get("querystring") or {}
-    raw_queries = qs.get("query") or []
-    filters: list[dict[str, Any]] = []
-    for q in raw_queries:
-        index = q.get("i", "")
-        op = q.get("o", "")
-        value = q.get("v", "")
-        filter_type = _VOLTO_QUERY_OP_TO_FILTER_TYPE.get(op, "")
-        if not filter_type:
-            continue
-        if filter_type == "path":
-            filters.append({"type": "path", "path": value or "/"})
-        elif filter_type == "content_type":
-            vals = value if isinstance(value, list) else [value]
-            for v in vals:
-                filters.append({"type": "content_type", "content_type": v})
-        elif filter_type == "subject":
-            vals = value if isinstance(value, list) else [value]
-            for v in vals:
-                filters.append({"type": "subject", "tag": v})
-        elif filter_type == "date":
-            filters.append({"type": "date", "field": index, "range": op.split(".")[-1]})
-
-    sort_on = qs.get("sort_on", "")
-    sort_order = qs.get("sort_order", "ascending")
-    limit = 10
-    try:
-        limit = int(qs.get("limit", 10))
-    except (ValueError, TypeError):
-        pass
-
-    headline_tag = raw.get("headlineTag", "h2")
-    headline_level = 3 if headline_tag == "h3" else 2
-
-    return {
-        "type": "listing",
-        "id": uid,
-        "path": path,
-        "name": container_name,
-        "attributes": {
-            "headline": raw.get("headline", ""),
-            "headline_level": headline_level,
-            "query": {
-                "filters": filters,
-                "sort_on": sort_on,
-                "sort_order": sort_order,
-                "limit": limit,
-            },
-            "variation": raw.get("variation", "default"),
-        },
-        "children": [],  # Populated by the CMS adapter at runtime
     }
 
 
@@ -1154,6 +1364,7 @@ _CONVERTERS: dict[str, _ConverterFn] = {
     "teaser": _convert_teaser,
     "highlight": _convert_highlight,
     "slateTable": _convert_table,
+    "listing": _convert_listing,
     "slider": _convert_slider,
     "carousel": _convert_carousel,
     "columnsBlock": _convert_columns,
@@ -1162,5 +1373,4 @@ _CONVERTERS: dict[str, _ConverterFn] = {
     "statistic_block": _convert_statistic,
     "form": _convert_form,
     "tabs_block": _convert_tabs,
-    "listing": _convert_listing,
 }

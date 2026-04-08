@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
@@ -9,6 +10,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field, create_model
 
 from interaktiv.kyra.agent.volto_vanilla import blocks
+from interaktiv.kyra.agent.volto_vanilla.callbacks import CallbackVoltoClient
 from interaktiv.kyra.agent.volto_vanilla.engine import Engine, EngineResult, MetadataPatchAttributes
 
 ContainerPath = Annotated[
@@ -72,6 +74,10 @@ def _result_to_str(result: EngineResult) -> str:
     return str(result.model_dump())
 
 
+def _json(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, default=str)
+
+
 def _dump_create(attrs: blocks.CreateAttributes) -> dict[str, Any]:
     return attrs.model_dump(mode="python")
 
@@ -86,8 +92,8 @@ CanCopyReasoning = Annotated[
         description=(
             "Prüfe, ob ein bestehendes Element kopiert werden könnte, "
             "statt ein neues zu erstellen. Gibt es auf der aktuellen Seite, "
-            "einer Referenzseite oder einer Geschwisterseite ein Element, "
-            "das als Vorlage dienen könnte?"
+            "einer anderen lesbaren Seite oder einer Geschwisterseite ein "
+            "Element, das als Vorlage dienen könnte?"
         ),
     ),
 ]
@@ -184,18 +190,16 @@ def _make_update_tool(engine: Engine, spec: blocks.BlockSpec) -> BaseTool:
 def _resolve_engine(
     page: str | None,
     engine: Engine,
-    reference_engines: dict[str, Engine] | None,
 ) -> Engine | EngineResult:
     """Resolve the target engine from the optional page parameter."""
     if page is None:
         return engine
-    if reference_engines and page in reference_engines:
-        return reference_engines[page]
-    available = ", ".join(reference_engines) if reference_engines else "(none)"
+    if engine.metadata.link and page == engine.metadata.link:
+        return engine
     return EngineResult(
         ok=False,
-        code="page_not_found",
-        message=f"Reference page '{page}' not found. Available: {available}.",
+        code="page_read_unavailable",
+        message=f"Requested page '{page}' is not available to read.",
     )
 
 
@@ -204,8 +208,18 @@ PageRef = Annotated[
     Field(
         default=None,
         description=(
-            "Link of a reference page to read instead of the working page. "
-            "Omit or null for the working page."
+            "Link of another page to read instead of the working page. Omit "
+            "or null for the working page."
+        ),
+    ),
+]
+SourcePageRef = Annotated[
+    str | None,
+    Field(
+        default=None,
+        description=(
+            "Source page link to copy from. Omit or null to copy from the "
+            "current working page."
         ),
     ),
 ]
@@ -213,12 +227,12 @@ PageRef = Annotated[
 
 def make_read_tools(
     engine: Engine,
-    reference_engines: dict[str, Engine] | None = None,
+    callback_client: CallbackVoltoClient | None = None,
 ) -> list[BaseTool]:
     """get_layout."""
 
     @tool
-    def get_layout(
+    async def get_layout(
         path: Annotated[
             str | None,
             Field(default=None, description="Container scope path. Null means root."),
@@ -237,10 +251,15 @@ def make_read_tools(
         ] = None,
         page: PageRef = None,
     ) -> str:
-        """Read current layout in IR form, optionally scoped to a container and windowed. Use the page parameter to read a reference page."""
-        target = _resolve_engine(page, engine, reference_engines)
+        """Read layout in IR form, optionally scoped to a container and windowed. Use page to read another available page."""
+        target = _resolve_engine(page, engine)
         if isinstance(target, EngineResult):
-            return _result_to_str(target)
+            if callback_client is None or page is None:
+                return _result_to_str(target)
+            state = await callback_client.fetch_page_state(page)
+            if isinstance(state, EngineResult):
+                return _result_to_str(state)
+            target = Engine.from_page_state(state)
         return _result_to_str(
             target.get_layout(path=path, name=name, start=start, end=end)
         )
@@ -250,19 +269,177 @@ def make_read_tools(
 
 def make_metadata_read_tools(
     engine: Engine,
-    reference_engines: dict[str, Engine] | None = None,
+    callback_client: CallbackVoltoClient | None = None,
 ) -> list[BaseTool]:
     """get_metadata."""
 
     @tool
-    def get_metadata(page: PageRef = None) -> str:
-        """Read a page's metadata (title, description, preview image, tags, link). Use the page parameter to read a reference page."""
-        target = _resolve_engine(page, engine, reference_engines)
+    async def get_metadata(page: PageRef = None) -> str:
+        """Read page metadata: title, description, preview image, tags, and link. Use page to read another available page."""
+        target = _resolve_engine(page, engine)
         if isinstance(target, EngineResult):
-            return _result_to_str(target)
+            if callback_client is None or page is None:
+                return _result_to_str(target)
+            return _result_to_str(await callback_client.fetch_metadata(page))
         return _result_to_str(target.get_metadata())
 
     return [get_metadata]
+
+
+def make_callback_read_tools(
+    engine: Engine,
+    callback_client: CallbackVoltoClient,
+) -> list[BaseTool]:
+    """Site/content/document/image read tools."""
+
+    @tool
+    async def list_children(
+        path: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "Content path to list children of. Defaults to the working "
+                    "page's parent when its link is known."
+                ),
+            ),
+        ] = None,
+        content_type: Annotated[
+            str | None,
+            Field(default=None, description="Filter children by content type."),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(default=10, ge=1, le=25, description="Max children to return."),
+        ] = 10,
+        offset: Annotated[
+            int,
+            Field(default=0, ge=0, description="Skip this many children."),
+        ] = 0,
+    ) -> str:
+        """List the direct children of a content node."""
+        if path is None:
+            current = engine.metadata.link
+            path = "/".join(current.rstrip("/").split("/")[:-1]) or "/"
+        return _json(
+            await callback_client.list_children(
+                path=path,
+                content_type=content_type,
+                limit=limit,
+                offset=offset,
+            )
+        )
+
+    @tool
+    async def search_content(
+        query: Annotated[
+            str | None,
+            Field(default=None, description="Full-text search terms."),
+        ] = None,
+        path: Annotated[
+            str | None,
+            Field(default=None, description="Restrict to a subtree."),
+        ] = None,
+        content_type: Annotated[
+            str | None,
+            Field(default=None, description="Filter by content type."),
+        ] = None,
+        subjects: Annotated[
+            list[str] | None,
+            Field(default=None, description="Filter by tags/subjects."),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(default=10, ge=1, le=25, description="Max results."),
+        ] = 10,
+    ) -> str:
+        """Search for content across the site."""
+        if not any([query, path, content_type, subjects]):
+            return _json(
+                {
+                    "error": "Provide at least one of: query, path, content_type, subjects."
+                }
+            )
+        return _json(
+            await callback_client.search_content(
+                query=query,
+                path=path,
+                content_type=content_type,
+                subjects=subjects,
+                limit=limit,
+            )
+        )
+
+    @tool
+    async def get_breadcrumb(
+        path: Annotated[
+            str | None,
+            Field(default=None, description="Content path. Defaults to current page."),
+        ] = None,
+    ) -> str:
+        """Get the ancestor chain for a content path."""
+        target = path or engine.metadata.link or "/"
+        return _json(await callback_client.get_breadcrumb(path=target))
+
+    @tool
+    async def search_documents(
+        query: Annotated[str, Field(description="Document search query.")],
+        path: Annotated[
+            str | None,
+            Field(default=None, description="Restrict to a content subtree."),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(default=5, ge=1, le=20, description="Max document chunks."),
+        ] = 5,
+    ) -> str:
+        """Search within documents."""
+        return _json(
+            await callback_client.search_documents(query=query, path=path, limit=limit)
+        )
+
+    @tool
+    async def read_document_pages(
+        path: Annotated[str, Field(description="Document content path.")],
+        start_page: Annotated[
+            int,
+            Field(default=1, ge=1, description="First page to read, 1-based."),
+        ] = 1,
+        end_page: Annotated[
+            int,
+            Field(default=5, ge=1, description="Last page to read, inclusive."),
+        ] = 5,
+    ) -> str:
+        """Read specific document pages."""
+        if end_page - start_page >= 5:
+            end_page = start_page + 4
+        return _json(
+            await callback_client.read_document_pages(
+                path=path, start_page=start_page, end_page=end_page
+            )
+        )
+
+    @tool
+    async def view_image(
+        path: Annotated[str, Field(description="Image content path.")],
+    ):
+        """View an image."""
+        return await callback_client.view_image(path=path)
+
+    tools: list[BaseTool] = []
+    if callback_client.endpoints.list_children:
+        tools.append(list_children)
+    if callback_client.endpoints.search_content:
+        tools.append(search_content)
+    if callback_client.endpoints.get_breadcrumb:
+        tools.append(get_breadcrumb)
+    if callback_client.endpoints.search_documents:
+        tools.append(search_documents)
+    if callback_client.endpoints.read_document_pages:
+        tools.append(read_document_pages)
+    if callback_client.endpoints.view_image:
+        tools.append(view_image)
+    return tools
 
 
 def make_metadata_update_tools(engine: Engine) -> list[BaseTool]:
@@ -375,7 +552,10 @@ def make_move_tools(engine: Engine) -> list[BaseTool]:
     return [swap_elements, move_element]
 
 
-def make_create_tools(engine: Engine) -> list[BaseTool]:
+def make_create_tools(
+    engine: Engine,
+    callback_client: CallbackVoltoClient | None = None,
+) -> list[BaseTool]:
     """One create tool per block type."""
 
     tools: list[BaseTool] = [
@@ -383,20 +563,42 @@ def make_create_tools(engine: Engine) -> list[BaseTool]:
     ]
 
     @tool
-    def copy_element(
+    async def copy_element(
         path: ContainerPath,
         name: ElementName,
         to_path: DestPath,
+        end_name: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description="Letztes Element eines zusammenhängenden Bereichs. "
+                "Wenn gesetzt, werden alle Elemente von name bis end_name kopiert.",
+            ),
+        ] = None,
+        source_page: SourcePageRef = None,
         after_name: AfterNameRef = None,
         before_name: BeforeNameRef = None,
         to_start: ToStartFlag = False,
         new_name: NewNameRef = None,
     ) -> str:
-        """Copy an element subtree to another container scope. Defaults to append at destination."""
+        """Copy a single element or a contiguous range to another container scope. Use source_page to copy from another available page."""
+        source_engine = engine
+        if source_page is not None:
+            target = _resolve_engine(source_page, engine)
+            if isinstance(target, EngineResult):
+                if callback_client is None:
+                    return _result_to_str(target)
+                state = await callback_client.fetch_page_state(source_page)
+                if isinstance(state, EngineResult):
+                    return _result_to_str(state)
+                target = Engine.from_page_state(state)
+            source_engine = target
         return _result_to_str(
-            engine.copy_element(
+            engine.copy_element_from(
+                source_engine,
                 path=path,
                 name=name,
+                end_name=end_name,
                 to_path=to_path,
                 after_name=after_name,
                 before_name=before_name,
@@ -420,7 +622,6 @@ type Permission = Literal["create", "update", "delete", "move"]
 ToolFactory = Callable[[Engine], list[BaseTool]]
 
 _PERMISSION_MAP: dict[Permission, ToolFactory] = {
-    "create": make_create_tools,
     "update": make_update_tools,
     "delete": make_delete_tools,
     "move": make_move_tools,
@@ -430,19 +631,39 @@ _PERMISSION_MAP: dict[Permission, ToolFactory] = {
 def make_tools(
     engine: Engine,
     permissions: list[Permission] | None = None,
-    reference_engines: dict[str, Engine] | None = None,
+    callback_client: CallbackVoltoClient | None = None,
 ) -> list[BaseTool]:
     """Build tools for the given Engine filtered by permissions."""
-    tools = make_read_tools(engine, reference_engines=reference_engines)
-    tools.extend(make_metadata_read_tools(engine, reference_engines=reference_engines))
+    tools: list[BaseTool] = []
+    if callback_client is not None:
+        tools.extend(make_callback_read_tools(engine, callback_client))
+    tools.extend(
+        make_read_tools(
+            engine,
+            callback_client=callback_client,
+        )
+    )
+    tools.extend(
+        make_metadata_read_tools(
+            engine,
+            callback_client=callback_client,
+        )
+    )
 
     effective = permissions or []
     for perm in effective:
+        if perm == "create":
+            tools.extend(
+                make_create_tools(
+                    engine,
+                    callback_client=callback_client,
+                )
+            )
+            continue
         factory = _PERMISSION_MAP.get(perm)
         if factory is None:
-            raise ValueError(
-                f"Unknown permission {perm!r}. Valid: {list(_PERMISSION_MAP)}"
-            )
+            valid = ["create", *_PERMISSION_MAP]
+            raise ValueError(f"Unknown permission {perm!r}. Valid: {valid}")
         tools.extend(factory(engine))
 
     if "update" in effective:

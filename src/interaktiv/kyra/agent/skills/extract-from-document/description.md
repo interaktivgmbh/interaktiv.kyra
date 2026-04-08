@@ -1,0 +1,1 @@
+Inhalte aus einem Dokument (PDF, Datei) im Portal extrahieren und strukturiert in die aktuelle Seite einarbeiten.

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from interaktiv.kyra.agent.volto_vanilla.engine import Engine
+from interaktiv.kyra.agent.volto_vanilla.callbacks import CallbackVoltoClient
 from interaktiv.kyra.agent.volto_vanilla.schema import Layout
 
 
@@ -23,6 +24,7 @@ class Conversation:
     original_layout: Layout
     agent: Any  # CompiledStateGraph
     config: dict[str, Any]
+    callback_client: CallbackVoltoClient | None = field(default=None, repr=False)
     reference_engines: dict[str, Engine] = field(default_factory=dict)
     initial_context: str = ""  # Page hierarchy context injected on first message
     first_message: bool = True

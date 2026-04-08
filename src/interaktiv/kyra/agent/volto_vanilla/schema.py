@@ -19,15 +19,74 @@ class ImageAlignment(StrEnum):
 
 
 class ImageSize(StrEnum):
-    S = "s"
-    M = "m"
-    L = "l"
+    SMALL = "small"
+    MEDIUM = "medium"
+    LARGE = "large"
 
 
-class InnerAlignment(StrEnum):
+class ButtonAlignment(StrEnum):
     LEFT = "left"
     CENTER = "center"
     RIGHT = "right"
+
+
+class SortOrder(StrEnum):
+    ASCENDING = "ascending"
+    DESCENDING = "descending"
+
+
+class ListingDisplayVariant(StrEnum):
+    STANDARD = "standard"
+    SUMMARY_LIST = "summary_list"
+    NEWS_LIST = "news_list"
+    TWO_COLUMN_GRID = "two_column_grid"
+    TEXT_CARD_GRID = "text_card_grid"
+    VISUAL_CARD_GRID = "visual_card_grid"
+    EVENT_LIST = "event_list"
+    HORIZONTAL_LIST = "horizontal_list"
+
+
+class QuoteDisplayVariant(StrEnum):
+    STANDARD = "standard"
+    TESTIMONIAL = "testimonial"
+
+
+class TabsDisplayVariant(StrEnum):
+    STANDARD = "standard"
+    ACCORDION = "accordion"
+    RESPONSIVE_TABS = "responsive_tabs"
+    HORIZONTAL_CAROUSEL = "horizontal_carousel"
+    VERTICAL_CAROUSEL = "vertical_carousel"
+
+
+class HighlightBackgroundColor(StrEnum):
+    LIGHT_BLUE = "light_blue"
+    DARK_TEAL = "dark_teal"
+    YELLOW = "yellow"
+    LIGHT_GREEN = "light_green"
+    OLIVE = "olive"
+
+
+class SliderAutoplayTransition(StrEnum):
+    SLIDE = "slide"
+    JUMP = "jump"
+
+
+class AccordionArrowPosition(StrEnum):
+    LEFT = "left"
+    RIGHT = "right"
+
+
+class FieldVisibilityOperator(StrEnum):
+    FILLED = "filled"
+    EMPTY = "empty"
+    EQUALS = "equals"
+    NOT_EQUALS = "not_equals"
+    CONTAINS = "contains"
+    NOT_CONTAINS = "not_contains"
+
+
+type VisualAlignment = Literal["default", "left", "center", "right"]
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +109,7 @@ class HeadingAttributes(BaseModel):
 
 class RichTextAttributes(BaseModel):
     html: str
+    content_width: str = "default"
 
 
 class ImageAttributes(BaseModel):
@@ -74,27 +134,31 @@ class VideoAttributes(BaseModel):
 class ButtonAttributes(BaseModel):
     title: str
     link: str
-    inner_alignment: InnerAlignment
+    alignment: ButtonAlignment
     open_link_in_new_tab: bool
 
 
 class TeaserAttributes(BaseModel):
     link: str
-    overwrite: bool
+    use_custom_content: bool
     title: str
-    head_title: str
+    eyebrow: str
     description: str
     preview_image: str
+    show_button: bool = False
+    button_label: str = ""
+    alignment: VisualAlignment = "default"
+    button_style: str = "default"
 
 
 class HighlightAttributes(BaseModel):
     image_url: str
     title: str
     html: str
-    button_show: bool = True
-    button_text: str
+    show_button: bool = True
+    button_label: str
     button_link: str
-    description_color: str | None = None
+    background_color: HighlightBackgroundColor | None = None
 
 
 class TableAttributes(BaseModel):
@@ -104,13 +168,83 @@ class TableAttributes(BaseModel):
     compact: bool
     fixed_column_width: bool
     hide_headers: bool
-    inverted_colors: bool
+    dark_background: bool
     striped_rows: bool
+
+
+class PathFilter(BaseModel):
+    """Restrict listing results to one or more subtrees."""
+
+    type: Literal["path"]
+    paths: list[str] = Field(min_length=1)
+
+
+class ContentTypeFilter(BaseModel):
+    """Filter listing results by content type."""
+
+    type: Literal["content_type"]
+    content_types: list[str] = Field(min_length=1)
+
+
+class SubjectFilter(BaseModel):
+    """Filter listing results by tags/subjects."""
+
+    type: Literal["subject"]
+    subjects: list[str] = Field(min_length=1)
+    operator: Literal["any", "all"] = "any"
+
+
+class DateFilter(BaseModel):
+    """Filter listing results by a date field."""
+
+    type: Literal["date"]
+    field: str
+    after: datetime | None = None
+    before: datetime | None = None
+
+    @model_validator(mode="after")
+    def at_least_one_bound(self) -> DateFilter:
+        if self.after is None and self.before is None:
+            raise ValueError("DateFilter needs at least one of 'after' or 'before'.")
+        return self
+
+
+type QueryFilter = Annotated[
+    PathFilter | ContentTypeFilter | SubjectFilter | DateFilter,
+    Field(discriminator="type"),
+]
+
+
+class ListingQuery(BaseModel):
+    """Faceted content query for a listing block."""
+
+    filters: list[QueryFilter] = Field(default_factory=list)
+    sort_on: str = ""
+    sort_order: SortOrder = SortOrder.ASCENDING
+    limit: int = 10
+
+
+class ListingItemAttributes(BaseModel):
+    """Resolved listing result. Read-only for the agent."""
+
+    content_path: str
+    title: str
+    description: str = ""
+    content_type: str = ""
+    preview_image: str = ""
+    published: datetime | None = None
+
+
+class ListingAttributes(BaseModel):
+    heading: str
+    heading_level: Annotated[int, Field(ge=2, le=3)]
+    query: ListingQuery
+    display_variant: ListingDisplayVariant = ListingDisplayVariant.STANDARD
 
 
 class SlideAttributes(BaseModel):
     link: str
-    head_title: str
+    eyebrow: str
     title: str
     description: str
     preview_image: str
@@ -118,9 +252,9 @@ class SlideAttributes(BaseModel):
 
 class SliderAttributes(BaseModel):
     autoplay: bool
-    autoplay_delay: int
-    autoplay_jump: bool
-    hide_arrows: bool
+    autoplay_delay_ms: int
+    autoplay_transition: SliderAutoplayTransition
+    show_arrows: bool
 
 
 class CarouselItemAttributes(BaseModel):
@@ -131,9 +265,9 @@ class CarouselItemAttributes(BaseModel):
 
 
 class CarouselAttributes(BaseModel):
-    headline: str
+    heading: str
     visible_items: int
-    hide_description: bool
+    show_descriptions: bool
 
 
 class ColumnAttributes(BaseModel):
@@ -141,7 +275,7 @@ class ColumnAttributes(BaseModel):
 
 
 class ColumnsAttributes(BaseModel):
-    reverse_wrap: bool
+    reverse_stack_order: bool
 
 
 class AccordionPanelAttributes(BaseModel):
@@ -149,22 +283,50 @@ class AccordionPanelAttributes(BaseModel):
 
 
 class AccordionAttributes(BaseModel):
-    headline: str
+    heading: str
     title: str
-    right_arrows: bool
-    exclusive: bool
-    collapsed: bool
-    filtering: bool
+    arrow_position: AccordionArrowPosition = AccordionArrowPosition.RIGHT
+    single_panel_open: bool
+    start_collapsed: bool
+    show_filter: bool
+    heading_alignment: VisualAlignment = "default"
+    heading_level: Annotated[int, Field(ge=2, le=3)] = 2
+    content_width: str = "default"
+
+
+class FieldVisibilityRule(BaseModel):
+    """Show this field only when another field satisfies a rule."""
+
+    field_id: str
+    operator: FieldVisibilityOperator
+    expected_value: str | None = None
+
+    @model_validator(mode="after")
+    def expected_value_required_for_value_checks(self) -> FieldVisibilityRule:
+        needs_value = {
+            FieldVisibilityOperator.EQUALS,
+            FieldVisibilityOperator.NOT_EQUALS,
+            FieldVisibilityOperator.CONTAINS,
+            FieldVisibilityOperator.NOT_CONTAINS,
+        }
+        if self.operator in needs_value and not self.expected_value:
+            raise ValueError(f"{self.operator.value!r} needs 'expected_value'.")
+        if self.operator in (
+            FieldVisibilityOperator.FILLED,
+            FieldVisibilityOperator.EMPTY,
+        ):
+            self.expected_value = None
+        return self
 
 
 class QuoteAttributes(BaseModel):
     html: str
-    source_html: str = ""
-    extra_html: str = ""
-    variation: str = "default"
-    position: str | None = None
-    reversed: bool = False
-    title_html: str = ""
+    attribution_html: str = ""
+    context_html: str = ""
+    display_variant: QuoteDisplayVariant = QuoteDisplayVariant.STANDARD
+    alignment: VisualAlignment = "default"
+    attribution_first: bool = False
+    role_html: str = ""
     image_url: str = ""
 
 
@@ -178,10 +340,10 @@ class StatisticItemAttributes(BaseModel):
 
 
 class StatisticAttributes(BaseModel):
-    horizontal: bool = False
-    inverted: bool = False
+    horizontal_layout: bool = False
+    dark_background: bool = False
     size: str = "small"
-    widths: int = 1
+    items_per_row: int = 1
     animation_enabled: bool = False
     animation_duration: float = 5.0
     animation_decimals: int = 0
@@ -191,50 +353,31 @@ class FormFieldAttributes(BaseModel):
     label: str
     description: str = ""
     required: bool = False
-    kind: Literal["text", "textarea", "number", "email", "date", "attachment"]
-    send_copy: bool = False
+    input_type: Literal["text", "textarea", "number", "email", "date", "attachment"]
+    use_as_reply_to: bool = False
+    show_when: list[FieldVisibilityRule] = Field(default_factory=list)
 
 
 class FormChoiceAttributes(BaseModel):
     label: str
     description: str = ""
     required: bool = False
-    kind: Literal["select", "radio", "checkbox"]
+    input_type: Literal["select", "radio", "checkbox"]
     options: list[str] = Field(default_factory=list)
     default: str = ""
+    show_when: list[FieldVisibilityRule] = Field(default_factory=list)
 
 
 class FormAttributes(BaseModel):
     title: str
     description: str = ""
-    submit_label: str = "Submit"
-    show_cancel: bool = False
-    cancel_label: str = ""
-    recipient_email: str
-    subject: str = ""
-    metadata: dict[str, str] = Field(default_factory=dict)
-
-
-class ListingQuery(BaseModel):
-    filters: list[dict[str, Any]] = Field(default_factory=list)
-    sort_on: str = ""
-    sort_order: str = "ascending"
-    limit: int = 10
-
-
-class ListingItemAttributes(BaseModel):
-    content_path: str
-    title: str
-    description: str = ""
-    content_type: str = ""
-    preview_image: str = ""
-
-
-class ListingAttributes(BaseModel):
-    headline: str = ""
-    headline_level: int = 2
-    query: ListingQuery = Field(default_factory=ListingQuery)
-    variation: str = "default"
+    submit_button_label: str = "Submit"
+    show_cancel_button: bool = False
+    cancel_button_label: str = ""
+    recipient_address: str
+    email_subject: str = ""
+    heading_alignment: VisualAlignment = "default"
+    hidden_fields: dict[str, str] = Field(default_factory=dict)
 
 
 class TabAttributes(BaseModel):
@@ -244,8 +387,8 @@ class TabAttributes(BaseModel):
 class TabsAttributes(BaseModel):
     title: str = ""
     description: str = ""
-    variation: str = "default"
-    hide_empty_tabs: bool = False
+    display_variant: TabsDisplayVariant = TabsDisplayVariant.STANDARD
+    show_empty_tabs: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +521,14 @@ class CarouselItemBlock(BaseModel):
     attributes: CarouselItemAttributes
 
 
+class ListingItemBlock(BaseModel):
+    type: Literal["listing_item"]
+    id: str
+    path: str
+    name: str
+    attributes: ListingItemAttributes
+
+
 class ColumnBlock(BaseModel):
     type: Literal["column"]
     id: str
@@ -445,6 +596,15 @@ class AccordionBlock(BaseModel):
     children: list[AccordionPanelBlock]
 
 
+class ListingBlock(BaseModel):
+    type: Literal["listing"]
+    id: str
+    path: str
+    name: str
+    attributes: ListingAttributes
+    children: list[ListingItemBlock] = Field(default_factory=list)
+
+
 class TabBlock(BaseModel):
     type: Literal["tab"]
     id: str
@@ -476,23 +636,6 @@ class FormFieldBlock(BaseModel):
 
 
 FormChild = FormFieldBlock | RichTextBlock
-
-
-class ListingItemBlock(BaseModel):
-    type: Literal["listing_item"]
-    id: str
-    path: str
-    name: str
-    attributes: ListingItemAttributes
-
-
-class ListingBlock(BaseModel):
-    type: Literal["listing"]
-    id: str
-    path: str
-    name: str
-    attributes: ListingAttributes
-    children: list[ListingItemBlock] = Field(default_factory=list)
 
 
 class FormBlock(BaseModel):
@@ -530,12 +673,12 @@ type Block = Annotated[
     | HighlightBlock
     | TableBlock
     | QuoteBlock
+    | ListingBlock
     | SliderBlock
     | CarouselBlock
     | ColumnsBlock
     | AccordionBlock
     | StatisticBlock
-    | ListingBlock
     | FormBlock
     | TabsBlock,
     Field(discriminator="type"),

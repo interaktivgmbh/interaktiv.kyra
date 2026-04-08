@@ -9,18 +9,35 @@ from collections.abc import Callable
 from html.parser import HTMLParser
 from typing import Any
 
-from .schema import Layout, Metadata
+from .schema import (
+    AccordionArrowPosition,
+    FieldVisibilityOperator,
+    HighlightBackgroundColor,
+    ImageSize,
+    Layout,
+    ListingDisplayVariant,
+    Metadata,
+    QuoteDisplayVariant,
+    SliderAutoplayTransition,
+    TabsDisplayVariant,
+)
 
 # ---------------------------------------------------------------------------
 # Highlight description color mapping (IR name → Volto CSS class)
 # ---------------------------------------------------------------------------
 
 _IR_COLOR_TO_VOLTO: dict[str, str] = {
-    "light-blue": "highlight-custom-color-1",
-    "dark-teal": "highlight-custom-color-2",
-    "yellow": "highlight-custom-color-3",
-    "light-green": "highlight-custom-color-4",
-    "olive": "highlight-custom-color-5",
+    HighlightBackgroundColor.LIGHT_BLUE.value: "highlight-custom-color-1",
+    HighlightBackgroundColor.DARK_TEAL.value: "highlight-custom-color-2",
+    HighlightBackgroundColor.YELLOW.value: "highlight-custom-color-3",
+    HighlightBackgroundColor.LIGHT_GREEN.value: "highlight-custom-color-4",
+    HighlightBackgroundColor.OLIVE.value: "highlight-custom-color-5",
+}
+
+_IR_IMAGE_SIZE_TO_VOLTO: dict[str, str] = {
+    ImageSize.SMALL.value: "s",
+    ImageSize.MEDIUM.value: "m",
+    ImageSize.LARGE.value: "l",
 }
 
 # ---------------------------------------------------------------------------
@@ -90,6 +107,18 @@ def _try_preserve_child(
     if old is not None and _block_unchanged(child, old):
         return ctx.volto_index.get(child["id"])
     return None
+
+
+def _merge_original_block(
+    block: dict[str, Any], ctx: _DiffCtx | None, updated: dict[str, Any]
+) -> dict[str, Any]:
+    """Preserve original Volto implementation details not represented in IR."""
+    if ctx is None:
+        return updated
+    original = ctx.volto_index.get(block["id"])
+    if original is None:
+        return updated
+    return {**original, **updated}
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +290,7 @@ _CONTAINER_TYPES: set[str] = {
     "carousel",
     "columns",
     "accordion",
+    "listing",
     "statistic",
     "form",
     "tabs",
@@ -276,6 +306,109 @@ def _build_href(url: str) -> list[dict[str, str]]:
     if url:
         return [{"@id": url}]
     return []
+
+
+def _styles_from_attrs(
+    attrs: dict[str, Any], mapping: dict[str, str]
+) -> dict[str, Any]:
+    styles: dict[str, Any] = {}
+    for ir_key, volto_key in mapping.items():
+        value = attrs.get(ir_key)
+        if value and value != "default":
+            styles[volto_key] = value
+    return styles
+
+
+_LISTING_DISPLAY_VARIANT_TO_VOLTO: dict[str, str] = {
+    ListingDisplayVariant.STANDARD.value: "default",
+    ListingDisplayVariant.SUMMARY_LIST.value: "summary",
+    ListingDisplayVariant.NEWS_LIST.value: "news",
+    ListingDisplayVariant.TWO_COLUMN_GRID.value: "grid2",
+    ListingDisplayVariant.TEXT_CARD_GRID.value: "textCards",
+    ListingDisplayVariant.VISUAL_CARD_GRID.value: "visualGrid",
+    ListingDisplayVariant.EVENT_LIST.value: "events",
+    ListingDisplayVariant.HORIZONTAL_LIST.value: "horizontalList",
+}
+
+
+def _listing_display_variant_to_volto(value: Any) -> str:
+    if isinstance(value, ListingDisplayVariant):
+        value = value.value
+    if not isinstance(value, str):
+        return "default"
+    return _LISTING_DISPLAY_VARIANT_TO_VOLTO.get(value, "default")
+
+
+_QUOTE_DISPLAY_VARIANT_TO_VOLTO: dict[str, str] = {
+    QuoteDisplayVariant.STANDARD.value: "default",
+    QuoteDisplayVariant.TESTIMONIAL.value: "testimonial",
+}
+
+
+def _quote_display_variant_to_volto(value: Any) -> str:
+    if isinstance(value, QuoteDisplayVariant):
+        value = value.value
+    if not isinstance(value, str):
+        return "default"
+    return _QUOTE_DISPLAY_VARIANT_TO_VOLTO.get(value, "default")
+
+
+_TABS_DISPLAY_VARIANT_TO_VOLTO: dict[str, str] = {
+    TabsDisplayVariant.STANDARD.value: "default",
+    TabsDisplayVariant.ACCORDION.value: "accordion",
+    TabsDisplayVariant.RESPONSIVE_TABS.value: "horizontal-responsive",
+    TabsDisplayVariant.HORIZONTAL_CAROUSEL.value: "carousel-horizontal",
+    TabsDisplayVariant.VERTICAL_CAROUSEL.value: "carousel-vertical",
+}
+
+
+def _tabs_display_variant_to_volto(value: Any) -> str:
+    if isinstance(value, TabsDisplayVariant):
+        value = value.value
+    if not isinstance(value, str):
+        return "default"
+    return _TABS_DISPLAY_VARIANT_TO_VOLTO.get(value, "default")
+
+
+_FIELD_VISIBILITY_OPERATOR_TO_VOLTO: dict[str, str] = {
+    FieldVisibilityOperator.FILLED.value: "is_not_empty",
+    FieldVisibilityOperator.EMPTY.value: "is_empty",
+    FieldVisibilityOperator.EQUALS.value: "equals",
+    FieldVisibilityOperator.NOT_EQUALS.value: "not_equals",
+    FieldVisibilityOperator.CONTAINS.value: "contains",
+    FieldVisibilityOperator.NOT_CONTAINS.value: "not_contains",
+}
+
+
+def _show_when_rules_to_volto(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        field_id = item.get("field_id")
+        operator = item.get("operator")
+        if isinstance(operator, FieldVisibilityOperator):
+            operator = operator.value
+        if not isinstance(field_id, str) or not field_id:
+            continue
+        if not isinstance(operator, str):
+            continue
+        condition = _FIELD_VISIBILITY_OPERATOR_TO_VOLTO.get(operator)
+        if condition is None:
+            continue
+        condition_data: dict[str, Any] = {
+            "field_id": field_id,
+            "condition": condition,
+            "field": {
+                "value": field_id,
+                "text": field_id,
+            },
+            "value_condition": item.get("expected_value"),
+        }
+        result.append(condition_data)
+    return result
 
 
 def _random_key(length: int = 5) -> str:
@@ -508,13 +641,19 @@ def _reverse_heading(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, A
 
 
 def _reverse_rich_text(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
-    html = block["attributes"]["html"]
+    attrs = block["attributes"]
+    html = attrs["html"]
     value = _html_to_slate(html)
-    return {
-        "@type": "slate",
-        "value": value,
-        "plaintext": _slate_to_plaintext(value),
-    }
+    return _merge_original_block(
+        block,
+        ctx,
+        {
+            "@type": "slate",
+            "value": value,
+            "plaintext": _slate_to_plaintext(value),
+            "styles": _styles_from_attrs(attrs, {"content_width": "blockWidth"}),
+        },
+    )
 
 
 def _reverse_image(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
@@ -524,7 +663,7 @@ def _reverse_image(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any
         "url": attrs["image_url"],
         "alt": attrs["alt_text"],
         "align": attrs["alignment"],
-        "size": attrs["size"],
+        "size": _IR_IMAGE_SIZE_TO_VOLTO.get(attrs["size"], "l"),
         "openLinkInNewTab": attrs["open_link_in_new_tab"],
     }
     href = _build_href(attrs["link"])
@@ -556,38 +695,53 @@ def _reverse_button(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, An
         "@type": "__button",
         "title": attrs["title"],
         "href": _build_href(attrs["link"]),
-        "inneralign": attrs["inner_alignment"],
+        "inneralign": attrs["alignment"],
         "openLinkInNewTab": attrs["open_link_in_new_tab"],
     }
 
 
 def _reverse_teaser(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
     attrs = block["attributes"]
-    return {
-        "@type": "teaser",
-        "href": _build_href(attrs["link"]),
-        "overwrite": attrs["overwrite"],
-        "title": attrs["title"],
-        "head_title": attrs["head_title"],
-        "description": attrs["description"],
-        "preview_image": _build_href(attrs["preview_image"]),
-    }
+    return _merge_original_block(
+        block,
+        ctx,
+        {
+            "@type": "teaser",
+            "href": _build_href(attrs["link"]),
+            "overwrite": attrs["use_custom_content"],
+            "title": attrs["title"],
+            "head_title": attrs["eyebrow"],
+            "description": attrs["description"],
+            "preview_image": _build_href(attrs["preview_image"]),
+            "showButton": attrs.get("show_button", False),
+            "buttonText": attrs.get("button_label", ""),
+            "styles": _styles_from_attrs(
+                attrs,
+                {
+                    "alignment": "align",
+                    "button_style": "buttonColor",
+                },
+            ),
+        },
+    )
 
 
 def _reverse_highlight(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
     attrs = block["attributes"]
     styles: dict[str, Any] = {}
-    ir_color = attrs.get("description_color")
+    ir_color = attrs.get("background_color")
+    if isinstance(ir_color, HighlightBackgroundColor):
+        ir_color = ir_color.value
     if ir_color and ir_color in _IR_COLOR_TO_VOLTO:
         styles["descriptionColor"] = _IR_COLOR_TO_VOLTO[ir_color]
     return {
         "@type": "highlight",
         "styles": styles,
-        "button": attrs.get("button_show", True),
+        "button": attrs.get("show_button", True),
         "url": attrs["image_url"],
         "title": attrs["title"],
         "value": _html_to_slate(attrs["html"]),
-        "buttonText": attrs["button_text"],
+        "buttonText": attrs["button_label"],
         "buttonLink": _build_href(attrs["button_link"]),
     }
 
@@ -604,10 +758,106 @@ def _reverse_table(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any
             "compact": attrs["compact"],
             "fixed": attrs["fixed_column_width"],
             "hideHeaders": attrs["hide_headers"],
-            "inverted": attrs["inverted_colors"],
+            "inverted": attrs["dark_background"],
             "striped": attrs["striped_rows"],
         },
     }
+
+
+def _listing_query_to_volto(query: dict[str, Any]) -> dict[str, Any]:
+    def _date_value(value: Any) -> Any:
+        return value.isoformat() if hasattr(value, "isoformat") else value
+
+    volto_filters: list[dict[str, Any]] = []
+    for item in query.get("filters", []):
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "path" and item.get("paths"):
+            volto_filters.append(
+                {
+                    "i": "path",
+                    "o": "plone.app.querystring.operation.string.absolutePath",
+                    "v": item["paths"][0],
+                }
+            )
+        elif item_type == "content_type" and item.get("content_types"):
+            volto_filters.append(
+                {
+                    "i": "portal_type",
+                    "o": "plone.app.querystring.operation.selection.any",
+                    "v": item["content_types"],
+                }
+            )
+        elif item_type == "subject" and item.get("subjects"):
+            operator = item.get("operator", "any")
+            volto_filters.append(
+                {
+                    "i": "Subject",
+                    "o": (
+                        "plone.app.querystring.operation.selection.all"
+                        if operator == "all"
+                        else "plone.app.querystring.operation.selection.any"
+                    ),
+                    "v": item["subjects"],
+                }
+            )
+        elif item_type == "date":
+            if item.get("after"):
+                volto_filters.append(
+                    {
+                        "i": item.get("field", "effective"),
+                        "o": "plone.app.querystring.operation.date.largerThan",
+                        "v": _date_value(item["after"]),
+                    }
+                )
+            if item.get("before"):
+                volto_filters.append(
+                    {
+                        "i": item.get("field", "effective"),
+                        "o": "plone.app.querystring.operation.date.lessThan",
+                        "v": _date_value(item["before"]),
+                    }
+                )
+
+    result: dict[str, Any] = {
+        "limit": str(query.get("limit", 10)),
+        "query": volto_filters,
+        "sort_order": query.get("sort_order", "ascending"),
+    }
+    if query.get("sort_on"):
+        result["sort_on"] = query["sort_on"]
+    return result
+
+
+def _reverse_listing(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
+    preserved = _try_preserve_container(block, ctx)
+    if preserved is not None:
+        return preserved
+
+    attrs = block["attributes"]
+    querystring = _listing_query_to_volto(attrs["query"])
+    if ctx is not None:
+        old_ir = ctx.ir_index.get(block["id"])
+        original = ctx.volto_index.get(block["id"])
+        if (
+            old_ir is not None
+            and original is not None
+            and old_ir.get("attributes", {}).get("query") == attrs["query"]
+            and isinstance(original.get("querystring"), dict)
+        ):
+            querystring = original["querystring"]
+    return _merge_original_block(
+        block,
+        ctx,
+        {
+            "@type": "listing",
+            "headline": attrs["heading"],
+            "headlineTag": f"h{attrs['heading_level']}",
+            "querystring": querystring,
+            "variation": _listing_display_variant_to_volto(attrs["display_variant"]),
+        },
+    )
 
 
 def _reverse_slider(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
@@ -628,7 +878,7 @@ def _reverse_slider(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, An
             {
                 "@id": child["id"],
                 "href": _build_href(child_attrs["link"]),
-                "head_title": child_attrs["head_title"],
+                "head_title": child_attrs["eyebrow"],
                 "title": child_attrs["title"],
                 "description": child_attrs["description"],
                 "preview_image": _build_href(child_attrs["preview_image"]),
@@ -638,9 +888,10 @@ def _reverse_slider(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, An
         "@type": "slider",
         "slides": slides,
         "autoplayEnabled": attrs["autoplay"],
-        "autoplayDelay": attrs["autoplay_delay"],
-        "autoplayJump": attrs["autoplay_jump"],
-        "hideArrows": attrs["hide_arrows"],
+        "autoplayDelay": attrs["autoplay_delay_ms"],
+        "autoplayJump": attrs["autoplay_transition"]
+        == SliderAutoplayTransition.JUMP.value,
+        "hideArrows": not attrs["show_arrows"],
     }
 
 
@@ -669,9 +920,9 @@ def _reverse_carousel(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, 
         )
     return {
         "@type": "carousel",
-        "headline": attrs["headline"],
+        "headline": attrs["heading"],
         "items_to_show": str(attrs["visible_items"]),
-        "hideDescription": attrs["hide_description"],
+        "hideDescription": not attrs["show_descriptions"],
         "columns": columns,
     }
 
@@ -752,18 +1003,26 @@ def _reverse_accordion(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str,
 
     result: dict[str, Any] = {
         "@type": "accordion",
-        "headline": attrs["headline"],
+        "headline": attrs["heading"],
         "title": attrs["title"],
-        "right_arrows": attrs["right_arrows"],
-        "non_exclusive": not attrs["exclusive"],
-        "filtering": attrs["filtering"],
-        "collapsed": attrs["collapsed"],
+        "title_size": f"h{attrs.get('heading_level', 2)}",
+        "right_arrows": attrs["arrow_position"] == AccordionArrowPosition.RIGHT.value,
+        "non_exclusive": not attrs["single_panel_open"],
+        "filtering": attrs["show_filter"],
+        "collapsed": attrs["start_collapsed"],
+        "styles": _styles_from_attrs(
+            attrs,
+            {
+                "heading_alignment": "headlineAlign",
+                "content_width": "blockWidth",
+            },
+        ),
         "data": {
             "blocks": panel_blocks,
             "blocks_layout": {"items": panel_items},
         },
     }
-    return result
+    return _merge_original_block(block, ctx, result)
 
 
 def _plaintext_to_slate(text: str) -> list[dict[str, Any]]:
@@ -778,15 +1037,17 @@ def _reverse_quote(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any
     result: dict[str, Any] = {
         "@type": "quote",
         "value": _html_to_slate(attrs["html"]),
-        "source": _html_to_slate(attrs["source_html"]),
-        "extra": _html_to_slate(attrs["extra_html"]),
-        "variation": attrs.get("variation", "default"),
-        "reversed": attrs.get("reversed", False),
+        "source": _html_to_slate(attrs["attribution_html"]),
+        "extra": _html_to_slate(attrs["context_html"]),
+        "variation": _quote_display_variant_to_volto(
+            attrs.get("display_variant", "standard")
+        ),
+        "reversed": attrs.get("attribution_first", False),
     }
-    if attrs.get("position"):
-        result["position"] = attrs["position"]
-    if attrs.get("title_html"):
-        result["title"] = _html_to_slate(attrs["title_html"])
+    if attrs.get("alignment") and attrs["alignment"] != "default":
+        result["position"] = attrs["alignment"]
+    if attrs.get("role_html"):
+        result["title"] = _html_to_slate(attrs["role_html"])
     if attrs.get("image_url"):
         result["image"] = _build_href(attrs["image_url"])
     return result
@@ -843,10 +1104,10 @@ def _reverse_statistic(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str,
 
     return {
         "@type": "statistic_block",
-        "horizontal": attrs.get("horizontal", False),
-        "inverted": attrs.get("inverted", False),
+        "horizontal": attrs.get("horizontal_layout", False),
+        "inverted": attrs.get("dark_background", False),
         "size": attrs.get("size", "small"),
-        "widths": _INT_TO_VOLTO_WIDTHS.get(attrs.get("widths", 1), "one"),
+        "widths": _INT_TO_VOLTO_WIDTHS.get(attrs.get("items_per_row", 1), "one"),
         "animation": animation,
         "items": items,
     }
@@ -859,6 +1120,12 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
 
     attrs = block["attributes"]
     children = block.get("children", [])
+    original_form = ctx.volto_index.get(block["id"]) if ctx is not None else None
+    original_subblocks: dict[str, dict[str, Any]] = {}
+    if isinstance(original_form, dict):
+        for sub in original_form.get("subblocks", []):
+            if isinstance(sub, dict) and isinstance(sub.get("id"), str):
+                original_subblocks[sub["id"]] = sub
 
     subblocks: list[dict[str, Any]] = []
     for child in children:
@@ -866,8 +1133,10 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
         ca = child["attributes"]
 
         if ir_type == "rich_text":
+            original = original_subblocks.get(child["id"], {})
             subblocks.append(
                 {
+                    **original,
                     "id": child["id"],
                     "field_type": "static_text",
                     "label": "",
@@ -878,9 +1147,10 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
 
         lookup_key = ir_type
         if ir_type in ("form_field", "form_choice"):
-            lookup_key = f"{ir_type}:{ca.get('kind', 'text')}"
+            lookup_key = f"{ir_type}:{ca.get('input_type', 'text')}"
         volto_type = _IR_FIELD_TYPE_TO_VOLTO.get(lookup_key, "text")
         sub: dict[str, Any] = {
+            **original_subblocks.get(child["id"], {}),
             "id": child["id"],
             "field_id": child["id"],
             "field_type": volto_type,
@@ -890,7 +1160,7 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
         sub["description"] = ca.get("description", "")
         sub["required"] = ca.get("required", False)
 
-        if ir_type == "form_field" and ca.get("send_copy"):
+        if ir_type == "form_field" and ca.get("use_as_reply_to"):
             sub["use_as_reply_to"] = True
 
         if ir_type == "form_choice":
@@ -898,9 +1168,10 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
             if ca.get("default"):
                 sub["default_value"] = ca["default"]
 
+        sub["visibility_conditions"] = _show_when_rules_to_volto(ca.get("show_when"))
         subblocks.append(sub)
 
-    for label, value in attrs.get("metadata", {}).items():
+    for label, value in attrs.get("hidden_fields", {}).items():
         subblocks.append(
             {
                 "id": str(_uuid4()),
@@ -911,20 +1182,22 @@ def _reverse_form(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
             }
         )
 
-    return {
+    result = {
         "@type": "form",
         "title": attrs.get("title", ""),
         "description": attrs.get("description", ""),
-        "submit_label": attrs.get("submit_label", "Submit"),
-        "show_cancel": attrs.get("show_cancel", False),
-        "cancel_label": attrs.get("cancel_label", ""),
-        "default_to": attrs.get("recipient_email", ""),
-        "default_subject": attrs.get("subject", ""),
+        "submit_label": attrs.get("submit_button_label", "Submit"),
+        "show_cancel": attrs.get("show_cancel_button", False),
+        "cancel_label": attrs.get("cancel_button_label", ""),
+        "default_to": attrs.get("recipient_address", ""),
+        "default_subject": attrs.get("email_subject", ""),
         "default_from": "noreply@plone.org",
         "send": True,
         "captcha": "honeypot",
+        "styles": _styles_from_attrs(attrs, {"heading_alignment": "headlineAlign"}),
         "subblocks": subblocks,
     }
+    return _merge_original_block(block, ctx, result)
 
 
 def _reverse_tabs(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
@@ -960,73 +1233,15 @@ def _reverse_tabs(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]
         "@type": "tabs_block",
         "title": attrs.get("title", ""),
         "description": attrs.get("description", ""),
-        "variation": attrs.get("variation", "default"),
-        "hideEmptyTabs": attrs.get("hide_empty_tabs", False),
+        "variation": _tabs_display_variant_to_volto(
+            attrs.get("display_variant", "standard")
+        ),
+        "hideEmptyTabs": not attrs.get("show_empty_tabs", True),
         "data": {
             "blocks": tab_blocks,
             "blocks_layout": {"items": tab_items},
         },
     }
-
-
-# ---------------------------------------------------------------------------
-# Listing
-# ---------------------------------------------------------------------------
-
-_IR_FILTER_TYPE_TO_VOLTO_OP: dict[str, str] = {
-    "path": "plone.app.querystring.operation.string.absolutePath",
-    "content_type": "plone.app.querystring.operation.selection.any",
-    "subject": "plone.app.querystring.operation.list.contains",
-}
-
-
-def _reverse_listing(block: dict[str, Any], ctx: _DiffCtx | None) -> dict[str, Any]:
-    preserved = _try_preserve_container(block, ctx)
-    if preserved is not None:
-        return preserved
-
-    attrs = block["attributes"]
-    query = attrs.get("query", {})
-    filters = query.get("filters", [])
-
-    volto_queries: list[dict[str, Any]] = []
-    for f in filters:
-        ftype = f.get("type", "")
-        if ftype == "path":
-            volto_queries.append({
-                "i": "path",
-                "o": "plone.app.querystring.operation.string.absolutePath",
-                "v": f.get("path", ""),
-            })
-        elif ftype == "content_type":
-            volto_queries.append({
-                "i": "portal_type",
-                "o": "plone.app.querystring.operation.selection.any",
-                "v": [f.get("content_type", "")],
-            })
-        elif ftype == "subject":
-            volto_queries.append({
-                "i": "Subject",
-                "o": "plone.app.querystring.operation.list.contains",
-                "v": [f.get("tag", "")],
-            })
-
-    headline_level = attrs.get("headline_level", 2)
-    headline_tag = "h3" if headline_level == 3 else "h2"
-
-    result: dict[str, Any] = {
-        "@type": "listing",
-        "headline": attrs.get("headline", ""),
-        "headlineTag": headline_tag,
-        "variation": attrs.get("variation", "default"),
-        "querystring": {
-            "query": volto_queries,
-            "sort_on": query.get("sort_on", ""),
-            "sort_order": query.get("sort_order", "ascending"),
-            "limit": str(query.get("limit", 10)),
-        },
-    }
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1047,6 +1262,7 @@ _REVERSE_CONVERTERS: dict[str, _ReverseConverterFn] = {
     "teaser": _reverse_teaser,
     "highlight": _reverse_highlight,
     "table": _reverse_table,
+    "listing": _reverse_listing,
     "slider": _reverse_slider,
     "carousel": _reverse_carousel,
     "columns": _reverse_columns,
@@ -1055,5 +1271,4 @@ _REVERSE_CONVERTERS: dict[str, _ReverseConverterFn] = {
     "statistic": _reverse_statistic,
     "form": _reverse_form,
     "tabs": _reverse_tabs,
-    "listing": _reverse_listing,
 }

@@ -19,9 +19,6 @@ from langgraph.graph.state import CompiledStateGraph
 
 logger = logging.getLogger(__name__)
 
-# Re-export from canonical location for backwards compatibility.
-from interaktiv.kyra.agent.core.graph import build_context  # noqa: F401, E402
-
 
 class RetryMiddleware(AgentMiddleware[Any, Any, Any]):
     """Retry failed model calls with exponential backoff."""

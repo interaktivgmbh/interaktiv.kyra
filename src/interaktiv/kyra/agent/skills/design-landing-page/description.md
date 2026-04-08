@@ -1,0 +1,1 @@
+Bereichs-Einstiegsseite (Landing Page) aufbauen: Struktur, Navigation und visuelle Hierarchie für eine Übersichtsseite, die Unterseiten erschließt.

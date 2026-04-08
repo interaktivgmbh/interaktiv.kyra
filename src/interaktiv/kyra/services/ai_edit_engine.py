@@ -30,6 +30,7 @@ from interaktiv.kyra.agent.volto_vanilla.converter import volto_to_page_state
 from interaktiv.kyra.agent.volto_vanilla.engine import Engine
 from interaktiv.kyra.agent.volto_vanilla.reverse_converter import layout_to_volto
 from interaktiv.kyra.agent.volto_vanilla.tools import Permission, make_tools
+from interaktiv.kyra.agent.skills import discover_skills, load_skill
 from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
 from interaktiv.kyra.services.ai_edit_prompts import load_prompt, progress_message
 from interaktiv.kyra.services.ai_edit_storage import (
@@ -40,6 +41,52 @@ from interaktiv.kyra.services.ai_edit_storage import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+
+import re
+from pathlib import Path
+
+SKILLS_ROOT = Path(__file__).resolve().parent.parent / "agent" / "skills"
+_SKILL_TOKEN_RE = re.compile(r"(?<!\S)/([A-Za-z0-9_-]+)\b")
+
+
+def _available_skills():
+    return discover_skills(SKILLS_ROOT)
+
+
+def _extract_skill_invocations(message: str) -> tuple[list[str], str]:
+    available = {skill.name for skill in _available_skills()}
+    invoked: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name not in available:
+            return match.group(0)
+        if name not in invoked:
+            invoked.append(name)
+        return ""
+
+    cleaned = _SKILL_TOKEN_RE.sub(replace, message)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if invoked and not cleaned:
+        cleaned = "Bitte wende den geladenen Skill an."
+    return invoked, cleaned or message
+
+
+def _build_skill_messages(message: str) -> tuple[list[tuple[str, str]], str]:
+    invoked, cleaned = _extract_skill_invocations(message)
+    messages: list[tuple[str, str]] = []
+    for name in invoked:
+        content = load_skill(SKILLS_ROOT, name)
+        if content is None:
+            continue
+        messages.append(("user", f"[Skill /{name}]\n{content.strip()}"))
+    return messages, cleaned
+
 
 # ---------------------------------------------------------------------------
 # Dedicated asyncio event loop (daemon thread)
@@ -176,13 +223,13 @@ def _build_context_note(ctx: dict[str, Any], conv: Conversation) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _run_agent(job: Job, conv: Conversation, user_message: str) -> None:
+async def _run_agent(job: Job, conv: Conversation, user_messages: list[tuple[str, str]]) -> None:
     """Run the agent and update job status."""
     snapshot = conv.engine.get_page_state()
     try:
         last_message = ""
         async for chunk in conv.agent.astream(
-            {"messages": [("user", user_message)]},
+            {"messages": user_messages},
             conv.config,  # type: ignore[arg-type]
             stream_mode="updates",
         ):
@@ -320,7 +367,6 @@ class AIEditCreateConversation(_EngineServiceBase):
             tools = make_tools(
                 engine,
                 permissions=permissions,
-                reference_engines=ref_pages,
             )
             tools.extend(browsing_tools)
             if "create" in permissions:
@@ -474,6 +520,10 @@ class AIEditSendMessage(_EngineServiceBase):
         else:
             user_message = message
 
+        # Extract skill invocations from the message
+        skill_messages, user_message = _build_skill_messages(user_message)
+        all_messages = skill_messages + [("user", user_message)]
+
         # Create job and dispatch agent run
         job_id = str(uuid.uuid4())
         job = Job(job_id=job_id, conversation_id=conversation_id)
@@ -485,7 +535,7 @@ class AIEditSendMessage(_EngineServiceBase):
         async def _wrapped():
             """Wrap _run_agent so we can store the asyncio.Task for cancellation."""
             job._async_task = asyncio.current_task()  # type: ignore[attr-defined]
-            await _run_agent(job, conv, user_message)
+            await _run_agent(job, conv, all_messages)
 
         asyncio.run_coroutine_threadsafe(_wrapped(), loop)
 
