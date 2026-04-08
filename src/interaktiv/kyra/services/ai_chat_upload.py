@@ -439,4 +439,4 @@ class AIChatUpload(ServiceBase):
             extracted_text or "",
         )
         self.request.response.setHeader("Content-Type", "application/json")
-        return json.dumps(payload)
+        return json.dumps(payload, default=str)

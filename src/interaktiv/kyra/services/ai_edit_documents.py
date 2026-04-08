@@ -254,7 +254,7 @@ def make_document_tools(doc_store: DocumentStore) -> list:
                 for _, c in results
             ],
             "count": len(results),
-        }, ensure_ascii=False)
+        }, ensure_ascii=False, default=str)
 
     @tool(args_schema=ReadDocumentPagesInput)
     def read_document_pages(
@@ -288,6 +288,6 @@ def make_document_tools(doc_store: DocumentStore) -> list:
             "end_page": end,
             "total_pages": total,
             "content": "\n\n".join(texts),
-        }, ensure_ascii=False)
+        }, ensure_ascii=False, default=str)
 
     return [search_documents, read_document_pages]

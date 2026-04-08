@@ -326,6 +326,7 @@ def _nodes_to_json(nodes: list[ContentNode]) -> str:
     return json.dumps(
         [n.model_dump(exclude_none=True, exclude_defaults=True) for n in nodes],
         ensure_ascii=False,
+        default=str,
     )
 
 

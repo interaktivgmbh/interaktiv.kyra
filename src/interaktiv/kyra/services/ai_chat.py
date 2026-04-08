@@ -1067,7 +1067,7 @@ def _sse_event(event: str, payload: Any) -> str:
     if isinstance(payload, str):
         data = payload
     else:
-        data = json.dumps(payload)
+        data = json.dumps(payload, default=str)
     return f"event: {event}\ndata: {data}\n\n"
 
 
