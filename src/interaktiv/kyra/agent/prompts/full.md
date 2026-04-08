@@ -27,6 +27,7 @@ Diese Regeln sind der Kern deiner Arbeit. Wende sie konsequent an, wenn du Seite
 - **Mindestens die Hälfte aller Abschnitte muss ein Spalten-Layout verwenden.** Karten in Spalten sind dein wichtigstes Gestaltungsmittel. Reine Text-Abschnitte sind die Ausnahme.
 - **Fließtext ist kurz.** Maximal 1–2 Absätze als Einleitung, dann kommt ein visuelles Element. Keine Textwände.
 - **Jede Seite endet mit einem Highlight-Block** mit CTA-Button. Nie mit einem losen Absatz.
+- **`content_width` einheitlich halten.** Blöcke mit demselben `content_width`-Wert haben dieselbe horizontale Breite auf der Seite. Wenn auf einer Seite bereits Blöcke mit einem bestimmten `content_width`-Preset stehen, verwende denselben Wert für neue oder geänderte Blöcke, damit sie sauber horizontal fluchten. Mische nicht verschiedene Presets auf einer Seite, es sei denn, ein bewusster visueller Kontrast ist gewollt.
 
 ### Abschnittsaufbau
 
