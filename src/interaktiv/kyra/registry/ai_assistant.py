@@ -53,18 +53,11 @@ class IAIAssistantSchema(Interface):
         required=False,
     )
 
-    openai_api_key = schema.Password(
-        title=u"OpenAI API Key",
-        description=u"API key for the LLM powering the Layout Agent (OpenAI-compatible).",
+    edit_backend_url = schema.TextLine(
+        title=_('trans_label_edit_backend_url'),
+        description=_('trans_help_edit_backend_url'),
         required=False,
-        default=u"",
-    )
-
-    openai_model = schema.TextLine(
-        title=u"Layout Agent LLM Model",
-        description=u"Model ID for the Layout Agent (e.g. gpt-5.4-mini, gpt-4o).",
-        required=False,
-        default=u"gpt-5.4-mini",
+        default='',
     )
 
     github_token = schema.Password(

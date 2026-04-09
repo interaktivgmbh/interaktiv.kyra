@@ -1,1 +1,0 @@
-Textfluss und Lesbarkeit verbessern: Fließtext durch gezielte Formatierung (Fettdruck, Kursiv, Listen, Zitate, Tabellen, Zwischenüberschriften) scanbar machen.

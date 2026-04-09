@@ -83,16 +83,15 @@ def _capabilities_for(context) -> dict:
         "permissions": permissions,
     }
 
-    if can_edit:
-        try:
-            openai_key = api.portal.get_registry_record(
-                "interaktiv.kyra.registry.ai_assistant.IAIAssistantSchema.openai_api_key",
-                default="",
-            )
-            if openai_key:
-                result["edit_backend_url"] = "proxy"
-        except Exception:
-            pass
+    try:
+        from interaktiv.kyra.registry.ai_assistant import IAIAssistantSchema
+        backend_url = api.portal.get_registry_record(
+            name="edit_backend_url", interface=IAIAssistantSchema
+        ) or ""
+        if backend_url:
+            result["edit_backend_url"] = "proxy"
+    except Exception:
+        pass
 
     return result
 

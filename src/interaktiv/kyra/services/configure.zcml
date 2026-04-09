@@ -173,10 +173,11 @@
         permission="interaktiv.kyra.manage.settings"
     />
 
+    <!-- Edit proxy (external layout-agent backend) -->
     <plone:service
         method="POST"
         name="@ai-edit-conversations"
-        factory=".ai_edit_engine.AIEditCreateConversation"
+        factory=".ai_edit_proxy.AIEditCreateConversation"
         for="*"
         permission="interaktiv.kyra.actions.apply"
     />
@@ -184,7 +185,7 @@
     <plone:service
         method="POST"
         name="@ai-edit-messages"
-        factory=".ai_edit_engine.AIEditSendMessage"
+        factory=".ai_edit_proxy.AIEditSendMessage"
         for="*"
         permission="interaktiv.kyra.actions.apply"
     />
@@ -192,7 +193,7 @@
     <plone:service
         method="GET"
         name="@ai-edit-jobs"
-        factory=".ai_edit_engine.AIEditPollJob"
+        factory=".ai_edit_proxy.AIEditPollJob"
         for="*"
         permission="interaktiv.kyra.actions.apply"
     />
@@ -200,9 +201,42 @@
     <plone:service
         method="POST"
         name="@ai-edit-job-cancel"
-        factory=".ai_edit_engine.AIEditCancelJob"
+        factory=".ai_edit_proxy.AIEditCancelJob"
         for="*"
         permission="interaktiv.kyra.actions.apply"
+    />
+
+    <!-- Chat proxy (read-only layout-agent backend) -->
+    <plone:service
+        method="POST"
+        name="@ai-chat-conversations"
+        factory=".ai_chat_proxy.AIChatCreateConversation"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-chat-messages"
+        factory=".ai_chat_proxy.AIChatSendMessage"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-chat-jobs"
+        factory=".ai_chat_proxy.AIChatPollJob"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-chat-job-cancel"
+        factory=".ai_chat_proxy.AIChatCancelJob"
+        for="*"
+        permission="interaktiv.kyra.chat"
     />
 
     <plone:service
@@ -243,6 +277,70 @@
         factory=".ai_error_report.AIErrorReport"
         for="*"
         permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-page"
+        factory=".ai_callbacks.AICallbackPage"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-metadata"
+        factory=".ai_callbacks.AICallbackMetadata"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-children"
+        factory=".ai_callbacks.AICallbackChildren"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-search"
+        factory=".ai_callbacks.AICallbackSearch"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-breadcrumb"
+        factory=".ai_callbacks.AICallbackBreadcrumb"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-documents-search"
+        factory=".ai_callbacks.AICallbackDocumentsSearch"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-documents-read"
+        factory=".ai_callbacks.AICallbackDocumentsRead"
+        for="*"
+        permission="zope2.View"
+    />
+
+    <plone:service
+        method="POST"
+        name="@ai-callback-image"
+        factory=".ai_callbacks.AICallbackImage"
+        for="*"
+        permission="zope2.View"
     />
 
 </configure>

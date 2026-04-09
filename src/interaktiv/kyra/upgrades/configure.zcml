@@ -64,4 +64,13 @@
             profile="interaktiv.kyra:default"
             handler="interaktiv.kyra.upgrades.v1060_to_v1070.upgrade"
     />
+
+    <genericsetup:upgradeStep
+            source="1070"
+            destination="1080"
+            title="Replace OpenAI fields with edit backend URL"
+            description=""
+            profile="interaktiv.kyra:default"
+            handler="interaktiv.kyra.upgrades.v1070_to_v1080.upgrade"
+    />
 </configure>

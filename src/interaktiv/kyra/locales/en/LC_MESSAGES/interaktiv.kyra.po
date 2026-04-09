@@ -28,6 +28,12 @@ msgstr "Gateway URL"
 msgid "trans_help_gateway_url"
 msgstr "The base URL of your AI prompt gateway API endpoint"
 
+msgid "trans_label_edit_backend_url"
+msgstr "Backend URL"
+
+msgid "trans_help_edit_backend_url"
+msgstr "The URL of the external backend (e.g. https://example.com/api/tools/layout-agent)"
+
 msgid "trans_label_keycloak_realms_url"
 msgstr "Keycloak Realms URL"
 
