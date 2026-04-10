@@ -476,26 +476,9 @@ class AICallbackDocumentsSearch(_CallbackBase):
 
 
 def _extract_pdf_pages(data: bytes) -> List[str]:
-    """Extract per-page text from PDF bytes using PyPDF2 or pdfminer."""
+    """Extract per-page text from PDF bytes using PyPDF2."""
     pages: List[str] = []
 
-    # Try pdfminer first for better quality
-    try:
-        from pdfminer.high_level import extract_text as _pm_extract  # type: ignore
-        import PyPDF2  # type: ignore
-
-        reader = PyPDF2.PdfReader(io.BytesIO(data))
-        for p in reader.pages:
-            try:
-                pages.append(p.extract_text() or "")
-            except Exception:
-                pages.append("")
-        if pages:
-            return pages
-    except Exception:
-        pass
-
-    # Fallback: PyPDF2 only
     try:
         import PyPDF2  # type: ignore
 

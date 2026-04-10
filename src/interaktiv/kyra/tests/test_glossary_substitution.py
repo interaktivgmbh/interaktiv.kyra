@@ -1,6 +1,6 @@
 import unittest
 
-from interaktiv.kyra.services.ai_actions import _apply_glossary_substitution
+from interaktiv.kyra.services.ai_translation import _apply_glossary_substitution
 
 
 class TestGlossarySubstitution(unittest.TestCase):

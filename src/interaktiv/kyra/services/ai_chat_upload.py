@@ -13,7 +13,6 @@ from interaktiv.kyra import logger
 from interaktiv.kyra.services.base import ServiceBase
 from plone import api
 from plone.protect.interfaces import IDisableCSRFProtection
-from zope.publisher.interfaces import IPublishTraverse
 from zope.annotation.interfaces import IAnnotations
 from zope.interface import alsoProvides
 from zExceptions import BadRequest
