@@ -135,6 +135,7 @@ BLOCK_TEXT_FIELDS = {
 
 BLOCK_NESTED_ARRAYS = {
     "tabBlock": [("columns", ["title"])],
+    "slider": [("slides", ["head_title", "title", "description"])],
     "sliderNew": [("slides", ["head_title", "title", "description"])],
     "carousel": [("columns", ["title", "description"])],
 }
@@ -447,14 +448,32 @@ def _translate_blocks(translator: Chat, blocks: Dict[str, Any], source_lang: str
                     return cb
                 collect_text(val, make_field_cb(block, key))
 
+        nested_defs = BLOCK_NESTED_ARRAYS.get(btype, [])
+        for array_field, subfields in nested_defs:
+            items = block.get(array_field)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                for sf in subfields:
+                    val = item.get(sf)
+                    if isinstance(val, str) and val.strip() and not _looks_like_url(val):
+                        def make_nested_cb(obj, key):
+                            def cb(translated):
+                                obj[key] = translated
+                            return cb
+                        collect_text(val, make_nested_cb(item, sf))
+
         richtext_handled = set(BLOCK_RICHTEXT_HTML_FIELDS.get(btype, []))
         slate_sub_handled = set(BLOCK_SLATE_SUBOBJECTS.get(btype, []))
+        nested_handled = set(af for af, _ in nested_defs)
         special_handled = set(special_fields)
         dynamic_def = BLOCK_DYNAMIC_SLATE_FIELDS.get(btype)
         dynamic_prefix = dynamic_def[0] if dynamic_def else None
 
         for key, value in list(block.items()):
-            if key in SKIP_TRANSLATION_FIELDS or key in special_handled or key in richtext_handled or key in slate_sub_handled:
+            if key in SKIP_TRANSLATION_FIELDS or key in special_handled or key in richtext_handled or key in slate_sub_handled or key in nested_handled:
                 continue
             if dynamic_prefix and key.startswith(f"{dynamic_prefix}-"):
                 continue
