@@ -137,16 +137,13 @@ class AIEditCreateConversation(_EditProxyBase):
     def reply(self):
         body = json.loads(self.request.get("BODY", "{}"))
 
-        # Try to inject callbacks (works when layout-agent can reach Plone)
         _inject_callbacks(body)
 
-        # Pre-load site context from Plone catalog (always works locally)
         page_link = body.get("state", {}).get("link", "")
         site_context = build_site_context(page_link)
 
         result = self._forward("POST", "/conversations", body)
 
-        # Cache site context for injection into the first message
         conv_id = result.get("conversation_id")
         if conv_id and site_context:
             with _context_lock:
@@ -164,7 +161,6 @@ class AIEditSendMessage(_EditProxyBase):
             self.request.response.setStatus(400)
             return {"error": "conversation_id is required"}
 
-        # Inject cached site context into the first message
         with _context_lock:
             site_context = _context_cache.pop(conversation_id, None)
 

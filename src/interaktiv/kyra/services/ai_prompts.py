@@ -14,10 +14,6 @@ from zope.interface import alsoProvides
 PROMPTS_STORAGE_KEY = "interaktiv.kyra.prompts"
 
 
-# ---------------------------------------------------------------------------
-# Annotation helpers
-# ---------------------------------------------------------------------------
-
 def _get_prompts_store() -> Dict[str, Dict[str, Any]]:
     """Return the prompts store from portal annotations.
     Structure: { "uuid": { prompt dict }, ... }
@@ -44,10 +40,6 @@ def _as_list(value: Any) -> List[str]:
         return [v.strip() for v in value.split(",") if v.strip()]
     return list(value)
 
-
-# ---------------------------------------------------------------------------
-# CRUD helpers
-# ---------------------------------------------------------------------------
 
 def list_prompts() -> List[Dict[str, Any]]:
     store = _get_prompts_store()
@@ -126,16 +118,11 @@ def delete_prompt(prompt_id: str) -> None:
     del store[prompt_id]
     _persist_store(store)
 
-    # Also remove associated files
     from interaktiv.kyra.services.prompt_files import delete_files_for_prompt
     delete_files_for_prompt(prompt_id)
 
     logger.info("[KYRA PROMPTS] deleted prompt %s", prompt_id)
 
-
-# ---------------------------------------------------------------------------
-# REST API Service
-# ---------------------------------------------------------------------------
 
 class AIPromptsService(Service):
 

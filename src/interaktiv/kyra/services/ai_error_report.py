@@ -154,7 +154,6 @@ class AIErrorReport(Service):
                 "reason": "GitHub token or repo not configured",
             }
 
-        # Get current Plone user
         username = ""
         try:
             user = api.user.get_current()
@@ -162,7 +161,6 @@ class AIErrorReport(Service):
         except Exception:
             pass
 
-        # Build issue title (truncated)
         error_type = data.get("error_type", "Error")
         title_text = error_message[:80]
         if len(error_message) > 80:

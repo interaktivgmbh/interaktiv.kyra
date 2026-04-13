@@ -21,21 +21,12 @@ from zope.interface import alsoProvides
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Base class
-# ---------------------------------------------------------------------------
-
-
 class _CallbackBase(Service):
     """Shared helpers for all AI-callback endpoints."""
 
     def __init__(self, context, request):
         super().__init__(context, request)
         alsoProvides(self.request, IDisableCSRFProtection)
-
-    # ------------------------------------------------------------------
-    # Auth
-    # ------------------------------------------------------------------
 
     def _verify_token(self) -> bool:
         """Return True when the request carries a valid Bearer token.
@@ -50,10 +41,6 @@ class _CallbackBase(Service):
             return bool(token)
         return False
 
-    # ------------------------------------------------------------------
-    # Request helpers
-    # ------------------------------------------------------------------
-
     def _read_body(self) -> Dict[str, Any]:
         """Parse and return the JSON request body."""
         try:
@@ -63,10 +50,6 @@ class _CallbackBase(Service):
             return json.loads(raw) if raw else {}
         except Exception:
             return {}
-
-    # ------------------------------------------------------------------
-    # Content helpers
-    # ------------------------------------------------------------------
 
     def _get_content(self, path: str):
         """Resolve a content object by path (relative to portal root)."""
@@ -82,12 +65,10 @@ class _CallbackBase(Service):
         portal_path = "/".join(portal.getPhysicalPath())
 
         physical_path = "/".join(obj.getPhysicalPath())
-        # Relative path: strip portal root segment
         rel_path = physical_path[len(portal_path):]
         if not rel_path:
             rel_path = "/"
 
-        # Preview image URL
         preview_image = None
         img_field = getattr(obj, "preview_image", None) or getattr(obj, "image", None)
         if img_field:
@@ -96,7 +77,6 @@ class _CallbackBase(Service):
             except Exception:
                 pass
 
-        # Children check
         has_children = False
         try:
             has_children = bool(obj.objectIds())
@@ -124,13 +104,11 @@ class _CallbackBase(Service):
         if not rel_path:
             rel_path = "/"
 
-        # Try to get absolute URL from brain
         try:
             absolute_url = brain.getURL()
         except Exception:
             absolute_url = ""
 
-        # Preview image
         preview_image = None
         if absolute_url:
             try:
@@ -149,10 +127,6 @@ class _CallbackBase(Service):
             "has_children": False,  # not available from brain without waking object
         }
 
-    # ------------------------------------------------------------------
-    # Response helpers
-    # ------------------------------------------------------------------
-
     def _unauthorized(self):
         self.request.response.setStatus(401)
         return {"error": "Unauthorized"}
@@ -160,11 +134,6 @@ class _CallbackBase(Service):
     def _not_found(self, message: str = "Not found"):
         self.request.response.setStatus(404)
         return {"error": message}
-
-
-# ---------------------------------------------------------------------------
-# 1. @ai-callback-page
-# ---------------------------------------------------------------------------
 
 
 class AICallbackPage(_CallbackBase):
@@ -216,11 +185,6 @@ class AICallbackPage(_CallbackBase):
         }
 
 
-# ---------------------------------------------------------------------------
-# 2. @ai-callback-metadata
-# ---------------------------------------------------------------------------
-
-
 class AICallbackMetadata(_CallbackBase):
     """POST @ai-callback-metadata — return metadata for a content object."""
 
@@ -261,7 +225,6 @@ class AICallbackMetadata(_CallbackBase):
             "preview_image": preview_image,
         }
 
-        # Include blocks if present
         blocks = getattr(obj, "blocks", None)
         blocks_layout = getattr(obj, "blocks_layout", None)
         if blocks:
@@ -270,11 +233,6 @@ class AICallbackMetadata(_CallbackBase):
             result["blocks_layout"] = json_compatible(blocks_layout)
 
         return result
-
-
-# ---------------------------------------------------------------------------
-# 3. @ai-callback-children
-# ---------------------------------------------------------------------------
 
 
 class AICallbackChildren(_CallbackBase):
@@ -320,11 +278,6 @@ class AICallbackChildren(_CallbackBase):
             "children": [self._brain_to_dict(b) for b in page],
             "count": total,
         }
-
-
-# ---------------------------------------------------------------------------
-# 4. @ai-callback-search
-# ---------------------------------------------------------------------------
 
 
 class AICallbackSearch(_CallbackBase):
@@ -378,11 +331,6 @@ class AICallbackSearch(_CallbackBase):
         }
 
 
-# ---------------------------------------------------------------------------
-# 5. @ai-callback-breadcrumb
-# ---------------------------------------------------------------------------
-
-
 class AICallbackBreadcrumb(_CallbackBase):
     """POST @ai-callback-breadcrumb — return ancestor chain for a path."""
 
@@ -419,11 +367,6 @@ class AICallbackBreadcrumb(_CallbackBase):
             "ancestors": ancestors,
             "node": node,
         }
-
-
-# ---------------------------------------------------------------------------
-# 6. @ai-callback-documents-search
-# ---------------------------------------------------------------------------
 
 
 class AICallbackDocumentsSearch(_CallbackBase):
@@ -468,11 +411,6 @@ class AICallbackDocumentsSearch(_CallbackBase):
             "results": [self._brain_to_dict(b) for b in page],
             "count": total,
         }
-
-
-# ---------------------------------------------------------------------------
-# 7. @ai-callback-documents-read
-# ---------------------------------------------------------------------------
 
 
 def _extract_pdf_pages(data: bytes) -> List[str]:
@@ -531,7 +469,6 @@ class AICallbackDocumentsRead(_CallbackBase):
             text = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
             all_pages = [text]
         else:
-            # Attempt raw decode
             try:
                 text = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
                 all_pages = [text]
@@ -559,11 +496,6 @@ class AICallbackDocumentsRead(_CallbackBase):
         }
 
 
-# ---------------------------------------------------------------------------
-# 8. @ai-callback-image
-# ---------------------------------------------------------------------------
-
-
 class AICallbackImage(_CallbackBase):
     """POST @ai-callback-image — return image URL and metadata."""
 
@@ -584,7 +516,6 @@ class AICallbackImage(_CallbackBase):
         base_url = obj.absolute_url()
         url = base_url + "/@@images/image"
 
-        # Caption may live on a description or caption field
         caption = (
             getattr(obj, "caption", None)
             or obj.Description()

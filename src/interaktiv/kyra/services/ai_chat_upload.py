@@ -41,9 +41,7 @@ def _normalize_extracted_text(value: str) -> str:
     }
     for src, dst in replacements.items():
         value = value.replace(src, dst)
-    # Collapse bullet-like markers to "- "
     value = re.sub(r"[•·●▪◦*]\s*", "- ", value)
-    # Remove stray double spaces
     value = re.sub(r"\s{2,}", " ", value)
     return value
 
@@ -71,7 +69,6 @@ def _clean_text_preserve_newlines(value: str, limit: int = 8000) -> str:
     value = _normalize_extracted_text(value)
     lines = []
     for line in value.splitlines():
-        # replace escaped backslashes with space
         line = re.sub(r"\\+", " ", line)
         stripped = " ".join(line.split())
         if stripped:
@@ -171,7 +168,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         if guess:
             ctype = guess.lower()
 
-    # RTF extraction
     if filename and filename.lower().endswith(".rtf"):
         try:
             from striprtf.striprtf import rtf_to_text  # type: ignore
@@ -198,14 +194,12 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
             logger.debug("RTF extraction failed: %s", exc)
         return ""
 
-    # Plain text
     if ctype.startswith("text/"):
         try:
             return _clean_text(data.decode("utf-8", errors="ignore"))
         except Exception:
             return ""
 
-        # PDF extraction: try pdfminer, PyPDF2, then OCR
     if "pdf" in ctype:
         extracted = ""
         try:
@@ -257,7 +251,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
         except Exception as exc:
             logger.debug("PDF text extraction failed: %s", exc)
 
-        # OCR fallback
         try:
             _set_tesseract_path()
             import pytesseract  # type: ignore
@@ -342,7 +335,6 @@ def _extract_text_from_file(data: bytes, content_type: Optional[str], filename: 
 
         return "Attachment uploaded (PDF), but no text could be extracted."
 
-    # Image OCR via pytesseract if available
     if ctype.startswith("image/"):
         try:
             _set_tesseract_path()

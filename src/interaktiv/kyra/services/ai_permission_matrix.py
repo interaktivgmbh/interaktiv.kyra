@@ -66,7 +66,6 @@ def _write_matrix(portal, matrix, groups):
     matrix: {feature_key: [group_id, ...]}
     groups: result of _get_groups_with_roles()
     """
-    # Build group_id → roles mapping
     group_roles = {}
     for g in groups:
         group_roles[g["id"]] = set(g["roles"])
@@ -74,13 +73,11 @@ def _write_matrix(portal, matrix, groups):
     for feature_key, perm_title in FEATURE_PERMISSIONS.items():
         granted_group_ids = set(matrix.get(feature_key, []))
 
-        # Collect roles that should have this permission
         new_roles = set()
         for g in groups:
             if g["id"] in granted_group_ids:
                 new_roles.update(group_roles[g["id"]])
 
-        # Always keep Manager
         new_roles.update(PROTECTED_ROLES)
 
         portal.manage_permission(
@@ -102,17 +99,14 @@ class AIPermissionMatrixGet(Service):
         groups = _get_groups_with_roles()
         role_matrix = _read_matrix(portal)
 
-        # Build group_id → roles mapping
         group_roles = {}
         for g in groups:
             group_roles[g["id"]] = set(g["roles"])
 
-        # Convert role-based matrix to group-based matrix
         group_matrix = {}
         for feature_key, active_roles in role_matrix.items():
             enabled_groups = []
             for g in groups:
-                # Group has the permission if any of its roles is in active_roles
                 if group_roles[g["id"]] & active_roles:
                     enabled_groups.append(g["id"])
             group_matrix[feature_key] = enabled_groups

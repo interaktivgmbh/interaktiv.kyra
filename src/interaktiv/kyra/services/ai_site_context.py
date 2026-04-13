@@ -25,7 +25,6 @@ def _extract_pdf_text(data: bytes) -> tuple[str, list[str]]:
     """Extract text from PDF bytes. Returns (full_text, per_page_texts)."""
     pages: list[str] = []
 
-    # Try PyPDF2
     try:
         import PyPDF2
 
@@ -42,7 +41,6 @@ def _extract_pdf_text(data: bytes) -> tuple[str, list[str]]:
     except Exception:
         pass
 
-    # Try pdfminer as fallback
     try:
         from pdfminer.high_level import extract_text
 
@@ -122,7 +120,6 @@ def build_site_context(page_path: str = "") -> str:
 
                 pages.append(label)
 
-                # Collect File objects for text extraction
                 if portal_type in ("File",):
                     documents.append({
                         "brain": brain,
@@ -139,7 +136,6 @@ def build_site_context(page_path: str = "") -> str:
                 + "\n".join(pages)
             )
 
-        # Extract document content
         if documents:
             doc_parts: list[str] = []
             total_text = 0
@@ -171,7 +167,6 @@ def build_site_context(page_path: str = "") -> str:
                         f"Pfad: {doc_info['path']}\n"
                     )
 
-                    # Include per-page content if available
                     if page_texts:
                         header += f"Gesamtseiten: {len(page_texts)}\n\n"
                         page_content: list[str] = []

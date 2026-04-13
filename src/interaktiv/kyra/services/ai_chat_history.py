@@ -17,7 +17,6 @@ STORAGE_KEY = "interaktiv.kyra.user_chat_data"
 
 def _read_body(request) -> dict:
     """Read JSON body from request, trying multiple methods."""
-    # Try plone.restapi's json_body first
     try:
         from plone.restapi.deserializer import json_body
         data = json_body(request)
@@ -105,7 +104,6 @@ class AIChatHistoryPatch(Service):
         body = _read_body(self.request)
         data = _get_user_store(user_id)
 
-        # Upsert single conversation
         conversation = body.get("conversation")
         if isinstance(conversation, dict) and conversation.get("id"):
             conversations = data.get("conversations", [])
@@ -114,7 +112,6 @@ class AIChatHistoryPatch(Service):
             conversations.insert(0, conversation)
             data["conversations"] = conversations
 
-        # Update chat_name
         if "chat_name" in body:
             data["chat_name"] = body["chat_name"]
 
