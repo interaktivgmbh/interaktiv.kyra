@@ -193,3 +193,36 @@ class AIEditCancelJob(_EditProxyBase):
             self.request.response.setStatus(400)
             return {"error": "job_id is required"}
         return self._forward("POST", f"/jobs/{job_id}/cancel")
+
+
+class AIEditGetMessages(_EditProxyBase):
+
+    def reply(self):
+        conversation_id = self.request.get("conversation_id", "")
+        if not conversation_id:
+            self.request.response.setStatus(400)
+            return {"error": "conversation_id is required"}
+        after = self.request.get("after", "")
+        url = f"/conversations/{conversation_id}/messages"
+        if after:
+            url += f"?after={after}"
+        return self._forward("GET", url)
+
+
+class AIEditGetMessage(_EditProxyBase):
+
+    def reply(self):
+        conversation_id = self.request.get("conversation_id", "")
+        message_uid = self.request.get("message_uid", "")
+        if not conversation_id or not message_uid:
+            self.request.response.setStatus(400)
+            return {"error": "conversation_id and message_uid are required"}
+        return self._forward(
+            "GET", f"/conversations/{conversation_id}/messages/{message_uid}"
+        )
+
+
+class AIEditGetSkills(_EditProxyBase):
+
+    def reply(self):
+        return self._forward("GET", "/skills")

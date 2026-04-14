@@ -206,6 +206,30 @@
         permission="interaktiv.kyra.actions.apply"
     />
 
+    <plone:service
+        method="GET"
+        name="@ai-edit-messages"
+        factory=".ai_edit_proxy.AIEditGetMessages"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-edit-message"
+        factory=".ai_edit_proxy.AIEditGetMessage"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-edit-skills"
+        factory=".ai_edit_proxy.AIEditGetSkills"
+        for="*"
+        permission="interaktiv.kyra.actions.apply"
+    />
+
     <!-- Chat proxy (read-only layout-agent backend) -->
     <plone:service
         method="POST"
@@ -235,6 +259,30 @@
         method="POST"
         name="@ai-chat-job-cancel"
         factory=".ai_chat_proxy.AIChatCancelJob"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-chat-messages"
+        factory=".ai_chat_proxy.AIChatGetMessages"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-chat-message"
+        factory=".ai_chat_proxy.AIChatGetMessage"
+        for="*"
+        permission="interaktiv.kyra.chat"
+    />
+
+    <plone:service
+        method="GET"
+        name="@ai-chat-skills"
+        factory=".ai_chat_proxy.AIChatGetSkills"
         for="*"
         permission="interaktiv.kyra.chat"
     />
