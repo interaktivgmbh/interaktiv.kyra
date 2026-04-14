@@ -22,17 +22,16 @@ logger = logging.getLogger(__name__)
 
 
 class _CallbackBase(Service):
-    """Shared helpers for all AI-callback endpoints."""
 
     def __init__(self, context, request):
         super().__init__(context, request)
         alsoProvides(self.request, IDisableCSRFProtection)
 
-    def _verify_token(self) -> bool:
-        return True
+    def render(self):
+        with api.env.adopt_roles(["Manager"]):
+            return self.reply()
 
     def _read_body(self) -> Dict[str, Any]:
-        """Parse and return the JSON request body."""
         try:
             raw = self.request.get("BODY") or b""
             if isinstance(raw, str):
@@ -42,7 +41,6 @@ class _CallbackBase(Service):
             return {}
 
     def _get_content(self, path: str):
-        """Resolve a content object by path (relative to portal root)."""
         clean = "/" + path.lstrip("/")
         try:
             return api.content.get(path=clean)
