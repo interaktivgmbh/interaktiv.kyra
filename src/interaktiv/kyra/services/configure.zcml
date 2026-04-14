@@ -332,7 +332,7 @@
         name="@ai-callback-page"
         factory=".ai_callbacks.AICallbackPage"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -340,7 +340,7 @@
         name="@ai-callback-metadata"
         factory=".ai_callbacks.AICallbackMetadata"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -348,7 +348,7 @@
         name="@ai-callback-children"
         factory=".ai_callbacks.AICallbackChildren"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -356,7 +356,7 @@
         name="@ai-callback-search"
         factory=".ai_callbacks.AICallbackSearch"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -364,7 +364,7 @@
         name="@ai-callback-breadcrumb"
         factory=".ai_callbacks.AICallbackBreadcrumb"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -372,7 +372,7 @@
         name="@ai-callback-documents-search"
         factory=".ai_callbacks.AICallbackDocumentsSearch"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -380,7 +380,7 @@
         name="@ai-callback-documents-read"
         factory=".ai_callbacks.AICallbackDocumentsRead"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
     <plone:service
@@ -388,7 +388,7 @@
         name="@ai-callback-image"
         factory=".ai_callbacks.AICallbackImage"
         for="*"
-        permission="zope2.View"
+        permission="zope.Public"
     />
 
 </configure>

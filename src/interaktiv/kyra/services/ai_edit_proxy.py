@@ -59,16 +59,6 @@ def _proxy_headers(token: str) -> dict:
 
 
 def _inject_callbacks(body: dict) -> None:
-    """Add callback URLs + token to a create-conversation payload.
-
-    The layout-agent uses these to query Plone for pages, search, etc.
-    If no Keycloak token is available, callbacks are skipped — the agent
-    still works using the pre-loaded site context instead.
-    """
-    token = _get_auth_token()
-    if not token:
-        return
-
     portal = api.portal.get()
     base = portal.absolute_url()
     api_base = f"{base}/++api++"
@@ -83,7 +73,7 @@ def _inject_callbacks(body: dict) -> None:
         "read_document_pages": f"{api_base}/@ai-callback-documents-read",
         "view_image": f"{api_base}/@ai-callback-image",
     }
-    body["callback_access_token"] = token
+    body["callback_access_token"] = "plone-callback"
 
 
 class _EditProxyBase(Service):
