@@ -58,127 +58,38 @@ def _proxy_headers(token: str) -> dict:
     return headers
 
 
+def _ensure_empty_label(block: dict) -> None:
+    if "blockLabel" not in block:
+        block["blockLabel"] = ""
+
+    data_blocks = block.get("data", {}).get("blocks", {})
+    for child in data_blocks.values():
+        if isinstance(child, dict):
+            if "blockLabel" not in child:
+                child["blockLabel"] = ""
+            for sub in child.get("blocks", {}).values():
+                if isinstance(sub, dict):
+                    _ensure_empty_label(sub)
+
+    for arr_field in ("columns", "slides", "subblocks"):
+        arr = block.get(arr_field)
+        if isinstance(arr, list):
+            for item in arr:
+                if isinstance(item, dict):
+                    if "blockLabel" not in item:
+                        item["blockLabel"] = ""
+                    for sub in item.get("blocks", {}).values():
+                        if isinstance(sub, dict):
+                            _ensure_empty_label(sub)
+
+
 def _inject_block_labels(state: dict) -> None:
     blocks = state.get("blocks")
-    items = state.get("blocks_layout", {}).get("items", [])
-    if not blocks or not items:
+    if not blocks:
         return
-
-    existing: set = set()
-    _collect_existing_labels(blocks, existing)
-
-    counters: dict = {}
-    for uid in items:
-        block = blocks.get(uid)
-        if not isinstance(block, dict):
-            continue
-        _label_block(block, counters, existing)
-        _label_nested(block, counters, existing)
-
-
-def _next_label(btype: str, counters: dict, existing: set) -> str:
-    counters[btype] = counters.get(btype, 0) + 1
-    label = f"{btype}_{counters[btype]}"
-    while label in existing:
-        counters[btype] += 1
-        label = f"{btype}_{counters[btype]}"
-    existing.add(label)
-    return label
-
-
-def _label_block(block: dict, counters: dict, existing: set) -> None:
-    if block.get("blockLabel"):
-        return
-    btype = block.get("@type", "block")
-    block["blockLabel"] = _next_label(btype, counters, existing)
-
-
-def _collect_existing_labels(blocks: dict, existing: set) -> None:
     for block in blocks.values():
-        if not isinstance(block, dict):
-            continue
-        if block.get("blockLabel"):
-            existing.add(block["blockLabel"])
-        data_blocks = block.get("data", {}).get("blocks", {})
-        if data_blocks:
-            _collect_existing_labels(data_blocks, existing)
-            for col in data_blocks.values():
-                if isinstance(col, dict) and col.get("blocks"):
-                    _collect_existing_labels(col["blocks"], existing)
-        for arr_field in ("columns", "slides", "subblocks"):
-            arr = block.get(arr_field)
-            if isinstance(arr, list):
-                for item in arr:
-                    if isinstance(item, dict):
-                        if item.get("blockLabel"):
-                            existing.add(item["blockLabel"])
-                        if item.get("blocks"):
-                            _collect_existing_labels(item["blocks"], existing)
-
-
-def _label_nested(block: dict, counters: dict, existing: set) -> None:
-    btype = block.get("@type", "")
-    parent_label = block.get("blockLabel", btype)
-
-    if btype == "columnsBlock":
-        data = block.get("data", {})
-        col_blocks = data.get("blocks", {})
-        col_items = data.get("blocks_layout", {}).get("items", [])
-        for i, cid in enumerate(col_items):
-            col = col_blocks.get(cid)
-            if not isinstance(col, dict):
-                continue
-            if not col.get("blockLabel"):
-                col["blockLabel"] = _next_label(f"{parent_label}_column", counters, existing)
-            child_blocks = col.get("blocks", {})
-            child_items = col.get("blocks_layout", {}).get("items", [])
-            for child_uid in child_items:
-                child = child_blocks.get(child_uid)
-                if isinstance(child, dict):
-                    _label_block(child, counters, existing)
-                    _label_nested(child, counters, existing)
-
-    elif btype == "accordion":
-        data = block.get("data", {})
-        panel_blocks = data.get("blocks", {})
-        panel_items = data.get("blocks_layout", {}).get("items", [])
-        for pid in panel_items:
-            panel = panel_blocks.get(pid)
-            if not isinstance(panel, dict):
-                continue
-            if not panel.get("blockLabel"):
-                panel["blockLabel"] = _next_label(f"{parent_label}_panel", counters, existing)
-            child_blocks = panel.get("blocks", {})
-            child_items = panel.get("blocks_layout", {}).get("items", [])
-            for child_uid in child_items:
-                child = child_blocks.get(child_uid)
-                if isinstance(child, dict):
-                    _label_block(child, counters, existing)
-                    _label_nested(child, counters, existing)
-
-    elif btype in ("tabBlock", "tabs_block"):
-        tabs = block.get("columns", [])
-        for tab in tabs:
-            if not isinstance(tab, dict):
-                continue
-            if not tab.get("blockLabel"):
-                tab["blockLabel"] = _next_label(f"{parent_label}_tab", counters, existing)
-            child_blocks = tab.get("blocks", {})
-            child_items = tab.get("blocks_layout", {}).get("items", [])
-            for child_uid in child_items:
-                child = child_blocks.get(child_uid)
-                if isinstance(child, dict):
-                    _label_block(child, counters, existing)
-                    _label_nested(child, counters, existing)
-
-    elif btype == "form":
-        subblocks = block.get("subblocks", [])
-        for sub in subblocks:
-            if not isinstance(sub, dict):
-                continue
-            if not sub.get("blockLabel"):
-                field_type = sub.get("field_type", "field")
-                sub["blockLabel"] = _next_label(f"{parent_label}_{field_type}", counters, existing)
+        if isinstance(block, dict):
+            _ensure_empty_label(block)
 
 
 def _inject_callbacks(body: dict) -> None:

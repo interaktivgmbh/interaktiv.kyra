@@ -1,6 +1,8 @@
 import json
 import logging
 
+from persistent.mapping import PersistentMapping
+from persistent.list import PersistentList
 from plone import api
 from plone.protect.interfaces import IDisableCSRFProtection
 from plone.restapi.deserializer import json_body
@@ -45,13 +47,16 @@ def _read_matrix(portal):
     annotations = IAnnotations(portal)
     stored = annotations.get(ANNOTATION_KEY)
     if stored:
-        return dict(stored)
+        return {k: list(v) for k, v in stored.items()}
     return {feature: [] for feature in FEATURE_PERMISSIONS}
 
 
 def _write_matrix(portal, matrix):
     annotations = IAnnotations(portal)
-    annotations[ANNOTATION_KEY] = dict(matrix)
+    persistent = PersistentMapping()
+    for key, groups in matrix.items():
+        persistent[key] = PersistentList(groups if isinstance(groups, list) else list(groups))
+    annotations[ANNOTATION_KEY] = persistent
 
 
 def get_user_features(context=None):
