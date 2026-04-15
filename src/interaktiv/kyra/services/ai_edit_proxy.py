@@ -60,7 +60,7 @@ def _proxy_headers(token: str) -> dict:
 
 def _ensure_empty_label(block: dict) -> None:
     if "blockLabel" not in block:
-        block["blockLabel"] = ""
+        block["blockLabel"] = None
 
     data_blocks = block.get("data", {}).get("blocks", {})
     for child in data_blocks.values():
