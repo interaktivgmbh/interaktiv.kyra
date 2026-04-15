@@ -80,6 +80,11 @@ class AIChatCreateConversation(_ChatProxyBase):
         body = json.loads(self.request.get("BODY", "{}"))
         body["permissions"] = []
 
+        state = body.get("state")
+        if isinstance(state, dict):
+            from interaktiv.kyra.services.ai_edit_proxy import _inject_block_labels
+            _inject_block_labels(state)
+
         _inject_callbacks(body)
 
         page_link = body.get("state", {}).get("link", "")

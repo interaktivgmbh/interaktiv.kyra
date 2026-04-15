@@ -58,6 +58,32 @@ def _proxy_headers(token: str) -> dict:
     return headers
 
 
+def _inject_block_labels(state: dict) -> None:
+    blocks = state.get("blocks")
+    items = state.get("blocks_layout", {}).get("items", [])
+    if not blocks or not items:
+        return
+    existing: set = set()
+    for block in blocks.values():
+        if isinstance(block, dict) and block.get("blockLabel"):
+            existing.add(block["blockLabel"])
+    counters: dict = {}
+    for uid in items:
+        block = blocks.get(uid)
+        if not isinstance(block, dict):
+            continue
+        if block.get("blockLabel"):
+            continue
+        btype = block.get("@type", "block")
+        counters[btype] = counters.get(btype, 0) + 1
+        label = f"{btype}-{counters[btype]}"
+        while label in existing:
+            counters[btype] += 1
+            label = f"{btype}-{counters[btype]}"
+        block["blockLabel"] = label
+        existing.add(label)
+
+
 def _inject_callbacks(body: dict) -> None:
     portal = api.portal.get()
     base = portal.absolute_url()
@@ -126,6 +152,10 @@ class AIEditCreateConversation(_EditProxyBase):
 
     def reply(self):
         body = json.loads(self.request.get("BODY", "{}"))
+
+        state = body.get("state")
+        if isinstance(state, dict):
+            _inject_block_labels(state)
 
         _inject_callbacks(body)
 

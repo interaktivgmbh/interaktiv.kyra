@@ -5,9 +5,12 @@ POST @ai-permission-matrix → save matrix (updates Plone role→permission assi
 """
 
 import json
+import logging
 import transaction
 
 from plone import api
+
+logger = logging.getLogger(__name__)
 from plone.protect.interfaces import IDisableCSRFProtection
 from plone.restapi.deserializer import json_body
 from plone.restapi.services import Service
@@ -140,7 +143,10 @@ class AIPermissionMatrixPost(Service):
 
         portal = api.portal.get()
         groups = _get_groups_with_roles()
+        logger.info("[KYRA PERMISSIONS] Saving matrix: %s", matrix)
+        logger.info("[KYRA PERMISSIONS] Groups: %s", [(g['id'], g['roles']) for g in groups])
         _write_matrix(portal, matrix, groups)
         transaction.commit()
+        logger.info("[KYRA PERMISSIONS] Saved and committed")
 
         return {"status": "ok"}
