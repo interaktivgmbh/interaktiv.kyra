@@ -109,7 +109,6 @@ class AIAssistantRunService(ServiceBase):
         if language:
             apply_payload["language"] = language
 
-        # Try applying via gateway prompts.apply (like kyra)
         remote_id = (
             prompt_data.get("gateway_id")
             or prompt_data.get("gatewayId")
@@ -118,8 +117,6 @@ class AIAssistantRunService(ServiceBase):
 
         gw_data = self.kyra.prompts.apply(remote_id, apply_payload)
 
-        # If the prompt doesn't exist on the gateway, create a temp prompt,
-        # apply it, then clean up
         temp_prompt_id = None
         if isinstance(gw_data, dict) and gw_data.get("error"):
             if prompt_text:
@@ -138,7 +135,6 @@ class AIAssistantRunService(ServiceBase):
                 gw_data = self.kyra.prompts.apply(
                     temp_prompt_id, apply_payload
                 )
-                # Clean up temp prompt
                 try:
                     self.kyra.prompts.delete(temp_prompt_id)
                 except Exception:

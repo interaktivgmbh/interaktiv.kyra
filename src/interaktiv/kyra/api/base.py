@@ -139,12 +139,12 @@ class APIBase:
             return {'error': reason}
 
         except requests.HTTPError as e:
-            logger.error(f'API HTTP error: {e}')
+            logger.debug(f'API HTTP error: {e}')
             if e.response is not None:
                 try:
                     error_detail = e.response.json()
                     error_msg = error_detail.get('error', str(e))
-                    logger.error(f'API error detail: {error_detail}')
+                    logger.debug(f'API error detail: {error_detail}')
                     return {'error': error_msg}
                 except Exception:
                     return {'error': str(e)}
