@@ -59,14 +59,16 @@ def _capabilities_for(context) -> dict:
             "assistant_run": False,
         }
     else:
+        from interaktiv.kyra.services.ai_permission_matrix import get_user_features
+        user_features = set(get_user_features(context))
         permissions = {
-            "chat": _check_permission("AIAssistant: Use Chat", context),
-            "translate": _check_permission("AIAssistant: Apply Actions", context),
-            "manage_glossary": _check_permission("AIAssistant: Manage Glossary", context),
-            "manage_tag_mappings": _check_permission("AIAssistant: Manage Tag Mappings", context),
-            "manage_prompts": _check_permission("AIAssistant: Manage Prompts", context),
-            "manage_settings": _check_permission("AIAssistant: Manage Settings", context),
-            "assistant_run": _check_permission("AIAssistant: Run Assistant", context),
+            "chat": "chat" in user_features,
+            "translate": "translate" in user_features,
+            "manage_glossary": "manage_glossary" in user_features,
+            "manage_tag_mappings": "manage_tag_mappings" in user_features,
+            "manage_prompts": "manage_prompts" in user_features,
+            "manage_settings": "manage_settings" in user_features,
+            "assistant_run": "assistant_run" in user_features,
         }
 
     is_admin = (

@@ -76,10 +76,10 @@ def _inject_block_labels(state: dict) -> None:
             continue
         btype = block.get("@type", "block")
         counters[btype] = counters.get(btype, 0) + 1
-        label = f"{btype}-{counters[btype]}"
+        label = f"{btype}_{counters[btype]}"
         while label in existing:
             counters[btype] += 1
-            label = f"{btype}-{counters[btype]}"
+            label = f"{btype}_{counters[btype]}"
         block["blockLabel"] = label
         existing.add(label)
 
