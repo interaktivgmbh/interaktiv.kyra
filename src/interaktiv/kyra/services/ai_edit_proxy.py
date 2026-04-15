@@ -71,7 +71,7 @@ def _ensure_empty_label(block: dict) -> None:
                 if isinstance(sub, dict):
                     _ensure_empty_label(sub)
 
-    for arr_field in ("columns", "slides", "subblocks"):
+    for arr_field in ("columns", "slides", "subblocks", "items"):
         arr = block.get(arr_field)
         if isinstance(arr, list):
             for item in arr:
