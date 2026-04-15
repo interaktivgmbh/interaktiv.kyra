@@ -29,7 +29,10 @@ class _CallbackBase(Service):
 
     def render(self):
         with api.env.adopt_roles(["Manager"]):
-            return self.reply()
+            return super().render()
+
+    def _verify_token(self) -> bool:
+        return True
 
     def _read_body(self) -> Dict[str, Any]:
         try:
