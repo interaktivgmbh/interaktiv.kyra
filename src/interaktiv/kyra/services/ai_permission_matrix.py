@@ -69,14 +69,28 @@ def get_user_features(context=None):
     user = api.user.get_current()
     user_groups = set(user.getGroups())
 
+    logger.info(
+        "[KYRA PERMISSIONS] user=%s groups=%s roles=%s matrix=%s",
+        user.getId(),
+        sorted(user_groups),
+        user.getRoles(),
+        {k: v for k, v in matrix.items()},
+    )
+
     features = []
     for feature, granted_groups in matrix.items():
-        if user_groups & set(granted_groups):
+        match = user_groups & set(granted_groups)
+        if match:
             features.append(feature)
+            logger.info(
+                "[KYRA PERMISSIONS] GRANTED %s via groups %s", feature, match
+            )
 
     if "Manager" in (user.getRoles() or []):
         features = list(FEATURE_PERMISSIONS.keys())
+        logger.info("[KYRA PERMISSIONS] Manager override — all features granted")
 
+    logger.info("[KYRA PERMISSIONS] final features=%s", features)
     return features
 
 
@@ -116,5 +130,9 @@ class AIPermissionMatrixPost(Service):
         portal = api.portal.get()
         _write_matrix(portal, matrix)
         logger.info("[KYRA PERMISSIONS] Matrix saved: %s", matrix)
+
+        # Verify it persisted
+        stored = _read_matrix(portal)
+        logger.info("[KYRA PERMISSIONS] Matrix read-back: %s", stored)
 
         return {"status": "ok"}
