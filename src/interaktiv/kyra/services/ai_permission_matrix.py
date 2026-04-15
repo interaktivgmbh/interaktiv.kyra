@@ -5,6 +5,7 @@ POST @ai-permission-matrix → save matrix (updates Plone role→permission assi
 """
 
 import json
+import transaction
 
 from plone import api
 from plone.protect.interfaces import IDisableCSRFProtection
@@ -140,5 +141,6 @@ class AIPermissionMatrixPost(Service):
         portal = api.portal.get()
         groups = _get_groups_with_roles()
         _write_matrix(portal, matrix, groups)
+        transaction.commit()
 
         return {"status": "ok"}
