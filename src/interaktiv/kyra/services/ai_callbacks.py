@@ -50,23 +50,46 @@ class _CallbackBase(Service):
         except Exception:
             return None
 
-    def _serialize_content(self, obj) -> Dict[str, Any]:
-        """Serialise a content object to a plain dict."""
+    def _map_content_type(self, portal_type: str) -> str:
+        """Map Plone portal_type to agent content_type."""
+        if portal_type == "Image":
+            return "image"
+        if portal_type == "File":
+            return "file"
+        return "page"
+
+    def _map_content_type_to_portal(self, ct: str) -> List[str]:
+        """Map agent content_type filter to Plone portal_types."""
+        if ct == "file":
+            return ["File"]
+        if ct == "image":
+            return ["Image"]
+        if ct == "page":
+            return ["Document", "News Item", "Event", "LRF", "LIF",
+                    "TemplatesContainer", "Folder"]
+        return []
+
+    def _rel_path_obj(self, obj) -> str:
         portal = api.portal.get()
         portal_path = "/".join(portal.getPhysicalPath())
+        full = "/".join(obj.getPhysicalPath())
+        rel = full[len(portal_path):]
+        return rel or "/"
 
-        physical_path = "/".join(obj.getPhysicalPath())
-        rel_path = physical_path[len(portal_path):]
-        if not rel_path:
-            rel_path = "/"
+    def _rel_path_brain(self, brain) -> str:
+        portal = api.portal.get()
+        portal_path = "/".join(portal.getPhysicalPath())
+        full = brain.getPath()
+        rel = full[len(portal_path):]
+        return rel or "/"
 
-        preview_image = None
-        img_field = getattr(obj, "preview_image", None) or getattr(obj, "image", None)
-        if img_field:
-            try:
-                preview_image = obj.absolute_url() + "/@@images/preview_image"
-            except Exception:
-                pass
+    def _serialize_content(self, obj) -> Dict[str, Any]:
+        """Serialise a content object to the strict ContentItem schema."""
+        portal_type = obj.portal_type
+        ct = self._map_content_type(portal_type)
+        link = self._rel_path_obj(obj)
+        title = obj.Title() or ""
+        description = obj.Description() or ""
 
         has_children = False
         try:
@@ -74,49 +97,96 @@ class _CallbackBase(Service):
         except Exception:
             pass
 
-        return {
-            "path": rel_path,
-            "@id": obj.absolute_url(),
-            "title": obj.Title() or "",
-            "description": obj.Description() or "",
-            "content_type": obj.portal_type,
-            "subjects": list(obj.Subject() or []),
-            "preview_image": preview_image,
+        result: Dict[str, Any] = {
+            "content_type": ct,
+            "link": link,
+            "title": title,
+            "description": description,
             "has_children": has_children,
         }
 
-    def _brain_to_dict(self, brain) -> Dict[str, Any]:
-        """Convert a catalog brain to a plain dict."""
-        portal = api.portal.get()
-        portal_path = "/".join(portal.getPhysicalPath())
-
-        brain_path = brain.getPath()
-        rel_path = brain_path[len(portal_path):]
-        if not rel_path:
-            rel_path = "/"
-
-        try:
-            absolute_url = brain.getURL()
-        except Exception:
-            absolute_url = ""
-
-        preview_image = None
-        if absolute_url:
+        if ct == "page":
+            result["subjects"] = list(obj.Subject() or [])
+            img_field = getattr(obj, "preview_image", None) or getattr(obj, "image", None)
+            if img_field:
+                try:
+                    result["preview_image"] = obj.absolute_url() + "/@@images/preview_image"
+                except Exception:
+                    pass
             try:
-                preview_image = absolute_url + "/@@images/preview_image"
+                result["review_state"] = api.content.get_state(obj) or ""
+            except Exception:
+                result["review_state"] = ""
+        elif ct == "file":
+            file_field = getattr(obj, "file", None)
+            if file_field:
+                result["filename"] = getattr(file_field, "filename", "") or ""
+                result["mime_type"] = getattr(file_field, "contentType", "") or ""
+                result["file_size"] = getattr(file_field, "size", 0) or 0
+                result["num_pages"] = 0
+                if "pdf" in (result.get("mime_type") or ""):
+                    try:
+                        import PyPDF2
+                        reader = PyPDF2.PdfReader(io.BytesIO(file_field.data))
+                        result["num_pages"] = len(reader.pages)
+                    except Exception:
+                        pass
+        elif ct == "image":
+            img_field = getattr(obj, "image", None)
+            if img_field:
+                result["filename"] = getattr(img_field, "filename", "") or ""
+                result["mime_type"] = getattr(img_field, "contentType", "") or ""
+                result["file_size"] = getattr(img_field, "size", 0) or 0
+
+        return result
+
+    def _brain_to_dict(self, brain) -> Dict[str, Any]:
+        """Convert a catalog brain to the strict ContentItem schema."""
+        portal_type = brain.portal_type or ""
+        ct = self._map_content_type(portal_type)
+        link = self._rel_path_brain(brain)
+        title = brain.Title or ""
+        description = brain.Description or ""
+
+        result: Dict[str, Any] = {
+            "content_type": ct,
+            "link": link,
+            "title": title,
+            "description": description,
+            "has_children": False,
+        }
+
+        if ct == "page":
+            result["subjects"] = list(brain.Subject or [])
+            try:
+                url = brain.getURL()
+                if url:
+                    result["preview_image"] = url + "/@@images/preview_image"
+            except Exception:
+                pass
+            result["review_state"] = brain.review_state or ""
+        elif ct in ("file", "image"):
+            # Detailed file/image metadata requires waking the object
+            try:
+                obj = brain.getObject()
+                field = getattr(obj, "file", None) or getattr(obj, "image", None)
+                if field:
+                    result["filename"] = getattr(field, "filename", "") or ""
+                    result["mime_type"] = getattr(field, "contentType", "") or ""
+                    result["file_size"] = getattr(field, "size", 0) or 0
+                    if ct == "file" and "pdf" in (result.get("mime_type") or ""):
+                        try:
+                            import PyPDF2
+                            reader = PyPDF2.PdfReader(io.BytesIO(field.data))
+                            result["num_pages"] = len(reader.pages)
+                        except Exception:
+                            result["num_pages"] = 0
+                    elif ct == "file":
+                        result["num_pages"] = 0
             except Exception:
                 pass
 
-        return {
-            "path": rel_path,
-            "@id": absolute_url,
-            "title": brain.Title or "",
-            "description": brain.Description or "",
-            "content_type": brain.portal_type,
-            "subjects": list(brain.Subject or []),
-            "preview_image": preview_image,
-            "has_children": False,  # not available from brain without waking object
-        }
+        return result
 
     def _unauthorized(self):
         self.request.response.setStatus(401)
@@ -165,12 +235,18 @@ class AICallbackPage(_CallbackBase):
             except Exception:
                 pass
 
+        try:
+            review_state = api.content.get_state(obj) or ""
+        except Exception:
+            review_state = ""
+
         return {
             "title": obj.Title() or "",
             "description": obj.Description() or "",
             "link": rel_path,
             "subjects": list(obj.Subject() or []),
             "preview_image": preview_image,
+            "review_state": review_state,
             "blocks": json_compatible(blocks),
             "blocks_layout": json_compatible(blocks_layout) if blocks_layout else None,
         }
@@ -208,12 +284,18 @@ class AICallbackMetadata(_CallbackBase):
             except Exception:
                 pass
 
+        try:
+            review_state = api.content.get_state(obj) or ""
+        except Exception:
+            review_state = ""
+
         result: Dict[str, Any] = {
             "title": obj.Title() or "",
             "description": obj.Description() or "",
             "link": rel_path,
             "subjects": list(obj.Subject() or []),
             "preview_image": preview_image,
+            "review_state": review_state,
         }
 
         blocks = getattr(obj, "blocks", None)
@@ -253,7 +335,9 @@ class AICallbackChildren(_CallbackBase):
             "sort_on": "getObjPositionInParent",
         }
         if content_type:
-            catalog_query["portal_type"] = content_type
+            portal_types = self._map_content_type_to_portal(content_type)
+            if portal_types:
+                catalog_query["portal_type"] = portal_types
 
         catalog = api.portal.get_tool("portal_catalog")
         try:
@@ -301,7 +385,9 @@ class AICallbackSearch(_CallbackBase):
             catalog_query["path"] = {"query": portal_path + clean_path}
 
         if content_type:
-            catalog_query["portal_type"] = content_type
+            portal_types = self._map_content_type_to_portal(content_type)
+            if portal_types:
+                catalog_query["portal_type"] = portal_types
 
         if subjects:
             catalog_query["Subject"] = subjects
