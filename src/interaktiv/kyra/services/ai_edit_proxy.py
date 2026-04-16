@@ -110,6 +110,57 @@ def _inject_callbacks(body: dict) -> None:
     body["callback_access_token"] = "plone-callback"
 
 
+def _inject_templates(body: dict, page_link: str) -> None:
+    """Find nearest templates container and inject its path into the body."""
+    if "create" not in (body.get("permissions") or []):
+        return
+    try:
+        from Products.CMFCore.utils import getToolByName
+
+        portal = api.portal.get()
+        catalog = getToolByName(portal, "portal_catalog")
+        brains = catalog(portal_type="TemplatesContainer")
+        if not brains:
+            return
+
+        # Resolve page content to find nearest container
+        content = None
+        if page_link:
+            portal_url = portal.absolute_url()
+            if page_link.startswith(portal_url):
+                path = page_link[len(portal_url):].lstrip("/")
+                content = api.content.get(path=f"/{path}")
+            elif page_link.startswith("/"):
+                content = api.content.get(path=page_link)
+
+        if content is None:
+            content = portal
+
+        content_path = "/".join(content.getPhysicalPath())
+
+        # Pick the container with the longest common path prefix
+        def common_prefix_len(brain):
+            container_path = brain.getPath()
+            i = 0
+            for a, b in zip(content_path.split("/"), container_path.split("/")):
+                if a == b:
+                    i += 1
+                else:
+                    break
+            return i
+
+        best = max(brains, key=common_prefix_len)
+        container_obj = best.getObject()
+        # Use the path relative to the portal (e.g., "/vorlagen")
+        portal_path = "/".join(portal.getPhysicalPath())
+        container_full = "/".join(container_obj.getPhysicalPath())
+        rel_path = container_full[len(portal_path):]
+        body["templates"] = rel_path
+        logger.info("[KYRA EDIT] Injected templates path: %s", rel_path)
+    except Exception:
+        logger.debug("Could not resolve templates container", exc_info=True)
+
+
 class _EditProxyBase(Service):
 
     def __init__(self, context, request):
@@ -168,6 +219,7 @@ class AIEditCreateConversation(_EditProxyBase):
         _inject_callbacks(body)
 
         page_link = body.get("state", {}).get("link", "")
+        _inject_templates(body, page_link)
         site_context = build_site_context(page_link)
 
         result = self._forward("POST", "/conversations", body)
