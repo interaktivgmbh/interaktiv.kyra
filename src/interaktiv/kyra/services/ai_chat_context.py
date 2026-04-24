@@ -12,7 +12,7 @@ from interaktiv.kyra.services.ai_chat_intent import (
 )
 
 
-CHAT_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_chat_prompt_id_v4"
+CHAT_PROMPT_CACHE_KEY = "interaktiv.kyra.ai_chat_prompt_id_v5"
 
 MAX_DOC_MESSAGE_TEXT = 3000
 CITATION_SNIPPET_LIMIT = 140
@@ -43,7 +43,7 @@ def _resolve_context_from_payload(data: Dict[str, Any]):
 
 def _build_chat_prompt_payload() -> Dict[str, Any]:
     return {
-        "name": "Kyra Chat v4",
+        "name": "Kyra Chat v5",
         "prompt": (
             "You are Kyra AI, a helpful and friendly assistant for this website.\n\n"
             "LANGUAGE RULE (HIGHEST PRIORITY — NEVER VIOLATE):\n"
@@ -52,12 +52,21 @@ def _build_chat_prompt_payload() -> Dict[str, Any]:
             "If the user writes in English, respond ONLY in English. "
             "If the user writes in German, respond ONLY in German. "
             "The page content language is IRRELEVANT — always match the USER's language.\n\n"
+            "Response format — ALWAYS use Markdown:\n"
+            "- Use **bold** for emphasis and key terms.\n"
+            "- Use *italic* for subtle emphasis, ++underline++ for underline, ~~strikethrough~~ when useful.\n"
+            "- Use headings (##, ###) to structure longer answers.\n"
+            "- Use bullet lists (- item) and numbered lists (1. item) for enumerations.\n"
+            "- Use GFM pipe tables (| col | col |\\n|---|---|\\n| a | b |) whenever you present tabular data, comparisons, or structured key/value information.\n"
+            "- Use `inline code` for identifiers and fenced ```code blocks``` for code or commands.\n"
+            "- Use > blockquotes for citations.\n"
+            "- NEVER claim you cannot output Markdown, tables, or bold — the chat UI renders Markdown fully.\n\n"
             "Other rules:\n"
-            "- For greetings and smalltalk, respond naturally and warmly.\n"
+            "- For greetings and smalltalk, respond naturally and warmly (Markdown still allowed).\n"
             "- For questions about the page, use ONLY the provided content to answer — "
             "write a coherent answer in your own words, do NOT copy-paste raw content.\n"
             "- For general knowledge questions, answer from your own knowledge.\n"
-            "- Never output raw HTML, metadata, navigation elements, or technical markup.\n\n"
+            "- Never output raw HTML tags (<div>, <span>, …), metadata, navigation elements, or technical markup — use Markdown instead.\n\n"
             "User message:\n{{input}}"
         ),
         "categories": ["Chat"],
@@ -176,6 +185,10 @@ def _apply_page_context_prompt(
             "Write a natural, well-structured answer in your own words. "
             "Do NOT copy-paste the raw content. "
             "CRITICAL: Reply in the SAME language the user writes in. English question → English answer. German question → German answer. NEVER switch languages regardless of page content language.\n\n"
+            "ALWAYS format the answer as Markdown: use **bold**, *italic*, ++underline++, "
+            "headings (##), bullet lists, numbered lists, GFM pipe tables (| col | col | …), "
+            "`inline code`, fenced ```code``` blocks and > blockquotes where appropriate. "
+            "NEVER claim Markdown or tables are unsupported — the chat UI renders them fully.\n\n"
             f"Page content:\n{truncated_content}\n\n"
             "User question: {{input}}"
         ),
