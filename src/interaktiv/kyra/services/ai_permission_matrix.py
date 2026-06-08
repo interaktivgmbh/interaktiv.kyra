@@ -1,19 +1,20 @@
-"""REST API service for managing the group × feature permission matrix.
-
-GET  @ai-permission-matrix → current matrix + available groups
-POST @ai-permission-matrix → save matrix (updates Plone role→permission assignments)
-"""
-
 import json
+import logging
 
+from persistent.mapping import PersistentMapping
+from persistent.list import PersistentList
 from plone import api
 from plone.protect.interfaces import IDisableCSRFProtection
 from plone.restapi.deserializer import json_body
 from plone.restapi.services import Service
 from zExceptions import BadRequest
+from zope.annotation.interfaces import IAnnotations
 from zope.interface import alsoProvides
 
-# Maps frontend feature key → Plone permission title
+logger = logging.getLogger(__name__)
+
+ANNOTATION_KEY = "interaktiv.kyra.permission_matrix"
+
 FEATURE_PERMISSIONS = {
     "chat": "AIAssistant: Use Chat",
     "translate": "AIAssistant: Apply Actions",
@@ -24,12 +25,8 @@ FEATURE_PERMISSIONS = {
     "assistant_run": "AIAssistant: Run Assistant",
 }
 
-# Roles that should never be editable via this UI
-PROTECTED_ROLES = {"Manager"}
 
-
-def _get_groups_with_roles():
-    """Return a list of {id, title, roles} for all non-virtual groups."""
+def _get_groups():
     acl = api.portal.get_tool("acl_users")
     results = []
     for group in acl.searchGroups():
@@ -39,59 +36,65 @@ def _get_groups_with_roles():
         group_obj = acl.getGroupById(group_id)
         if group_obj is None:
             continue
-        roles = set(group_obj.getRoles()) - {"Authenticated"}
         results.append({
             "id": group_id,
             "title": group_obj.getProperty("title", group_id) or group_id,
-            "roles": sorted(roles),
         })
     return results
 
 
 def _read_matrix(portal):
-    """Read the current permission→role assignments from the portal."""
-    matrix = {}
-    for feature_key, perm_title in FEATURE_PERMISSIONS.items():
-        roles_for_perm = portal.rolesOfPermission(perm_title)
-        active_roles = {
-            r["name"] for r in roles_for_perm if r["selected"]
-        }
-        matrix[feature_key] = active_roles
-    return matrix
+    annotations = IAnnotations(portal)
+    stored = annotations.get(ANNOTATION_KEY)
+    if stored:
+        return {k: list(v) for k, v in stored.items()}
+    return {feature: [] for feature in FEATURE_PERMISSIONS}
 
 
-def _write_matrix(portal, matrix, groups):
-    """Write the permission→role assignments to the portal.
+def _write_matrix(portal, matrix):
+    annotations = IAnnotations(portal)
+    persistent = PersistentMapping()
+    for key, groups in matrix.items():
+        persistent[key] = PersistentList(groups if isinstance(groups, list) else list(groups))
+    annotations[ANNOTATION_KEY] = persistent
 
-    matrix: {feature_key: [group_id, ...]}
-    groups: result of _get_groups_with_roles()
-    """
-    # Build group_id → roles mapping
-    group_roles = {}
-    for g in groups:
-        group_roles[g["id"]] = set(g["roles"])
 
-    for feature_key, perm_title in FEATURE_PERMISSIONS.items():
-        granted_group_ids = set(matrix.get(feature_key, []))
+def get_user_features(context=None):
+    """Return the list of features the current user has access to."""
+    if api.user.is_anonymous():
+        return []
 
-        # Collect roles that should have this permission
-        new_roles = set()
-        for g in groups:
-            if g["id"] in granted_group_ids:
-                new_roles.update(group_roles[g["id"]])
+    portal = api.portal.get()
+    matrix = _read_matrix(portal)
+    user = api.user.get_current()
+    user_groups = set(user.getGroups())
 
-        # Always keep Manager
-        new_roles.update(PROTECTED_ROLES)
+    logger.info(
+        "[KYRA PERMISSIONS] user=%s groups=%s roles=%s matrix=%s",
+        user.getId(),
+        sorted(user_groups),
+        user.getRoles(),
+        {k: v for k, v in matrix.items()},
+    )
 
-        portal.manage_permission(
-            perm_title,
-            roles=sorted(new_roles),
-            acquire=0,
-        )
+    features = []
+    for feature, granted_groups in matrix.items():
+        match = user_groups & set(granted_groups)
+        if match:
+            features.append(feature)
+            logger.info(
+                "[KYRA PERMISSIONS] GRANTED %s via groups %s", feature, match
+            )
+
+    if "Manager" in (user.getRoles() or []):
+        features = list(FEATURE_PERMISSIONS.keys())
+        logger.info("[KYRA PERMISSIONS] Manager override — all features granted")
+
+    logger.info("[KYRA PERMISSIONS] final features=%s", features)
+    return features
 
 
 class AIPermissionMatrixGet(Service):
-    """GET @ai-permission-matrix"""
 
     def __init__(self, context, request):
         super().__init__(context, request)
@@ -99,36 +102,17 @@ class AIPermissionMatrixGet(Service):
 
     def reply(self):
         portal = api.portal.get()
-        groups = _get_groups_with_roles()
-        role_matrix = _read_matrix(portal)
-
-        # Build group_id → roles mapping
-        group_roles = {}
-        for g in groups:
-            group_roles[g["id"]] = set(g["roles"])
-
-        # Convert role-based matrix to group-based matrix
-        group_matrix = {}
-        for feature_key, active_roles in role_matrix.items():
-            enabled_groups = []
-            for g in groups:
-                # Group has the permission if any of its roles is in active_roles
-                if group_roles[g["id"]] & active_roles:
-                    enabled_groups.append(g["id"])
-            group_matrix[feature_key] = enabled_groups
+        groups = _get_groups()
+        matrix = _read_matrix(portal)
 
         return {
-            "groups": [
-                {"id": g["id"], "title": g["title"]}
-                for g in groups
-            ],
+            "groups": [{"id": g["id"], "title": g["title"]} for g in groups],
             "features": list(FEATURE_PERMISSIONS.keys()),
-            "matrix": group_matrix,
+            "matrix": matrix,
         }
 
 
 class AIPermissionMatrixPost(Service):
-    """POST @ai-permission-matrix"""
 
     def __init__(self, context, request):
         super().__init__(context, request)
@@ -144,7 +128,11 @@ class AIPermissionMatrixPost(Service):
             raise BadRequest("'matrix' must be an object")
 
         portal = api.portal.get()
-        groups = _get_groups_with_roles()
-        _write_matrix(portal, matrix, groups)
+        _write_matrix(portal, matrix)
+        logger.info("[KYRA PERMISSIONS] Matrix saved: %s", matrix)
+
+        # Verify it persisted
+        stored = _read_matrix(portal)
+        logger.info("[KYRA PERMISSIONS] Matrix read-back: %s", stored)
 
         return {"status": "ok"}
