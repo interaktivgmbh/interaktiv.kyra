@@ -1,5 +1,5 @@
+import os
 import random
-import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,10 +23,6 @@ GLOSSARY_IDS_KEY = "interaktiv.kyra.glossary_ids"
 GLOSSARY_NAME = "FZJ Kyra Translation Glossary"
 
 
-# ---------------------------------------------------------------------------
-# Registry / annotation helpers
-# ---------------------------------------------------------------------------
-
 def _get_deepl_api_key() -> str:
     try:
         return api.portal.get_registry_record(
@@ -47,10 +43,44 @@ def _get_glossary_ids() -> Dict[str, str]:
         return {}
 
 
+_glossary_lookup_cache: Dict[str, str] = {}
+
 def _get_glossary_id_for_pair(source_lang: str, target_lang: str) -> str:
-    """Return the DeepL glossary ID for a specific language pair."""
+    """Return the DeepL glossary ID for a specific language pair.
+    Falls back to querying DeepL API once if locally stored ID is missing."""
     ids = _get_glossary_ids()
-    return ids.get(_pair_key(source_lang, target_lang), "")
+    pair = _pair_key(source_lang, target_lang)
+    local_id = ids.get(pair, "")
+    if local_id:
+        return local_id
+    if pair in _glossary_lookup_cache:
+        return _glossary_lookup_cache[pair]
+    fresh_id = _fetch_glossary_id_from_deepl(source_lang, target_lang)
+    _glossary_lookup_cache[pair] = fresh_id
+    return fresh_id
+
+
+def _fetch_glossary_id_from_deepl(source_lang: str, target_lang: str) -> str:
+    """Query DeepL API for existing glossaries and return matching ID."""
+    client = _get_deepl_client()
+    if client is None:
+        return ""
+    try:
+        src = _deepl_source_lang(source_lang).upper()
+        tgt = _deepl_source_lang(target_lang).upper()
+        glossaries = client.list_glossaries()
+        for g in glossaries:
+            g_src = getattr(g, "source_lang", "").upper()
+            g_tgt = getattr(g, "target_lang", "").upper()
+            if g_src == src and g_tgt == tgt:
+                ids = _get_glossary_ids()
+                ids[_pair_key(source_lang, target_lang)] = g.glossary_id
+                _set_glossary_ids(ids)
+                logger.info("[KYRA DEEPL] refreshed glossary ID from DeepL: %s (%s->%s)", g.glossary_id, src, tgt)
+                return g.glossary_id
+    except Exception as exc:
+        logger.debug("[KYRA DEEPL] could not fetch glossaries from DeepL: %s", exc)
+    return ""
 
 
 def _set_glossary_ids(ids: Dict[str, str]) -> None:
@@ -58,13 +88,10 @@ def _set_glossary_ids(ids: Dict[str, str]) -> None:
         portal = api.portal.get()
         annotations = IAnnotations(portal)
         annotations[GLOSSARY_IDS_KEY] = dict(ids)
+        _glossary_lookup_cache.clear()
     except Exception as exc:
         logger.warning("[KYRA DEEPL] could not save glossary_ids: %s", exc)
 
-
-# ---------------------------------------------------------------------------
-# DeepL client
-# ---------------------------------------------------------------------------
 
 def _get_deepl_client():
     """Return a DeepL client or None if not available."""
@@ -81,10 +108,6 @@ def _get_deepl_client():
         logger.warning("[KYRA DEEPL] could not create client: %s", exc)
         return None
 
-
-# ---------------------------------------------------------------------------
-# Translate via DeepL
-# ---------------------------------------------------------------------------
 
 _LANG_MAP = {
     "en": "EN-US",
@@ -121,7 +144,6 @@ def _deepl_source_lang(lang: str) -> str:
     return _SOURCE_LANG_MAP.get(lang.lower().strip(), lang.upper())
 
 
-# Reverse mapping: DeepL code -> our internal code (e.g. "EN-US" -> "en")
 _REVERSE_LANG_MAP: Dict[str, str] = {}
 for _k, _v in _LANG_MAP.items():
     _REVERSE_LANG_MAP[_v.upper()] = _k
@@ -134,7 +156,6 @@ def _internal_lang(deepl_code: str) -> str:
     code = deepl_code.upper().strip()
     if code in _REVERSE_LANG_MAP:
         return _REVERSE_LANG_MAP[code]
-    # Fallback: try base code (e.g. "EN-US" -> "EN")
     base = code.split("-")[0]
     if base in _REVERSE_LANG_MAP:
         return _REVERSE_LANG_MAP[base]
@@ -160,9 +181,12 @@ def deepl_translate_text(
     }
     if source_lang:
         kwargs["source_lang"] = _deepl_source_lang(source_lang)
-    gid = glossary_id or (
-        _get_glossary_id_for_pair(source_lang, target_lang) if source_lang else ""
-    )
+    gid = glossary_id
+    if not gid and source_lang:
+        store = _get_glossary_store()
+        pair = _pair_key(source_lang, target_lang)
+        if store.get(pair):
+            gid = _get_glossary_id_for_pair(source_lang, target_lang)
     if gid and source_lang:
         kwargs["glossary"] = gid
 
@@ -187,14 +211,124 @@ def deepl_translate_text(
                 )
                 time.sleep(delay)
                 continue
+            # If glossary not found, clear stale ID and retry without glossary
+            if "glossary" in exc_str.lower() and "not found" in exc_str.lower() and "glossary" in kwargs:
+                stale_id = kwargs.pop("glossary", "")
+                logger.warning("[KYRA DEEPL] glossary %s not found at DeepL, clearing and retrying without", stale_id)
+                # Clear the stale ID from local cache
+                if source_lang:
+                    ids = _get_glossary_ids()
+                    pair = _pair_key(source_lang, _internal_lang(kwargs.get("target_lang", target_lang)))
+                    if ids.get(pair) == stale_id:
+                        ids.pop(pair, None)
+                        _set_glossary_ids(ids)
+                # Try to find a valid glossary from DeepL
+                fresh_id = _fetch_glossary_id_from_deepl(source_lang, target_lang)
+                if fresh_id and fresh_id != stale_id:
+                    kwargs["glossary"] = fresh_id
+                    logger.info("[KYRA DEEPL] found fresh glossary %s, retrying", fresh_id)
+                continue
             logger.warning("[KYRA DEEPL] translation failed, falling back: %s", exc)
             return None
     return None
 
 
-# ---------------------------------------------------------------------------
-# Local glossary entry storage (portal annotations)
-# ---------------------------------------------------------------------------
+DEEPL_MAX_BATCH_BYTES = 120 * 1024  # 120KB safe margin under DeepL's 128KB limit
+
+
+def deepl_translate_text_batch(
+    texts: List[str],
+    source_lang: str,
+    target_lang: str,
+    glossary_id: Optional[str] = None,
+) -> List[Optional[str]]:
+    """Translate multiple texts in batched DeepL API calls.
+    Returns a list of translated strings (same order as input).
+    None for texts that failed to translate."""
+    if not texts:
+        return []
+
+    client = _get_deepl_client()
+    if client is None:
+        return [None] * len(texts)
+
+    gid = glossary_id
+    if not gid and source_lang:
+        store = _get_glossary_store()
+        pair = _pair_key(source_lang, target_lang)
+        if store.get(pair):
+            gid = _get_glossary_id_for_pair(source_lang, target_lang)
+
+    batches: List[List[Tuple[int, str]]] = []
+    current_batch: List[Tuple[int, str]] = []
+    current_size = 0
+    for idx, text in enumerate(texts):
+        if not text or not text.strip():
+            continue
+        text_size = len(text.encode("utf-8"))
+        if current_batch and current_size + text_size > DEEPL_MAX_BATCH_BYTES:
+            batches.append(current_batch)
+            current_batch = []
+            current_size = 0
+        current_batch.append((idx, text))
+        current_size += text_size
+    if current_batch:
+        batches.append(current_batch)
+
+    results: List[Optional[str]] = [None] * len(texts)
+    for idx, text in enumerate(texts):
+        if not text or not text.strip():
+            results[idx] = text or ""
+
+    for batch in batches:
+        batch_texts = [text for _, text in batch]
+        batch_indices = [idx for idx, _ in batch]
+
+        kwargs: Dict[str, Any] = {
+            "text": batch_texts,
+            "target_lang": _deepl_target_lang(target_lang),
+        }
+        if source_lang:
+            kwargs["source_lang"] = _deepl_source_lang(source_lang)
+        if gid and source_lang:
+            kwargs["glossary"] = gid
+
+        for attempt in range(4):
+            try:
+                result_list = client.translate_text(**kwargs)
+                for i, result in enumerate(result_list):
+                    translated = str(result).strip()
+                    if translated:
+                        results[batch_indices[i]] = translated
+                    else:
+                        results[batch_indices[i]] = batch_texts[i]
+                logger.info(
+                    "[KYRA DEEPL] batch translated %d texts (%s->%s)",
+                    len(batch_texts), source_lang, target_lang,
+                )
+                break
+            except Exception as exc:
+                exc_str = str(exc)
+                if ("Too many requests" in exc_str or "429" in exc_str) and attempt < 3:
+                    delay = 1.5 * (attempt + 1) + random.uniform(0, 0.5)
+                    logger.info(
+                        "[KYRA DEEPL] batch rate limited, retrying in %.1fs (attempt %d/3)",
+                        delay, attempt + 1,
+                    )
+                    time.sleep(delay)
+                    continue
+                if "glossary" in exc_str.lower() and "not found" in exc_str.lower() and "glossary" in kwargs:
+                    logger.warning("[KYRA DEEPL] batch glossary not found, retrying without")
+                    kwargs.pop("glossary", None)
+                    continue
+                logger.warning("[KYRA DEEPL] batch translation failed: %s", exc)
+                # Fall back to originals for this batch
+                for i in range(len(batch_texts)):
+                    results[batch_indices[i]] = batch_texts[i]
+                break
+
+    return results
+
 
 def _get_glossary_store() -> Dict[str, Dict[str, Dict[str, str]]]:
     """
@@ -227,7 +361,6 @@ def add_glossary_entry(
     if key not in store:
         store[key] = {}
     store[key][source_term.strip()] = target_term.strip()
-    # Persist
     portal = api.portal.get()
     annotations = IAnnotations(portal)
     annotations[GLOSSARY_ENTRIES_KEY] = store
@@ -251,10 +384,6 @@ def remove_glossary_entry(
     return dict(entries)
 
 
-# ---------------------------------------------------------------------------
-# Sync local entries to DeepL glossary
-# ---------------------------------------------------------------------------
-
 def _pull_entries_from_deepl(client) -> int:
     """
     Read all glossaries from DeepL and synchronize them into our local store.
@@ -267,7 +396,6 @@ def _pull_entries_from_deepl(client) -> int:
         glossaries = client.list_glossaries()
         logger.info("[KYRA DEEPL] pulling entries from %d DeepL glossaries", len(glossaries))
 
-        # Collect all remote entries per language pair
         remote_by_pair: Dict[str, Dict[str, str]] = {}
         for g in glossaries:
             try:
@@ -291,30 +419,25 @@ def _pull_entries_from_deepl(client) -> int:
                     "[KYRA DEEPL] could not read glossary %s: %s", g.glossary_id, exc
                 )
 
-        # Sync local store with remote: add missing, remove stale
         store = _get_glossary_store()
         for key, remote_entries in remote_by_pair.items():
             if key not in store:
                 store[key] = {}
-            # Add new remote entries
             for term, translation in remote_entries.items():
                 if term not in store[key]:
                     store[key][term] = translation
                     changed += 1
-            # Remove local entries that no longer exist in DeepL
             stale = [t for t in store[key] if t not in remote_entries]
             for term in stale:
                 del store[key][term]
                 changed += 1
 
-        # Also clean up local pairs that have no remote glossary at all
         for key in list(store.keys()):
             if key not in remote_by_pair:
                 if store[key]:
                     changed += len(store[key])
                     store[key] = {}
 
-        # Persist
         portal = api.portal.get()
         annotations = IAnnotations(portal)
         annotations[GLOSSARY_ENTRIES_KEY] = store
@@ -326,13 +449,68 @@ def _pull_entries_from_deepl(client) -> int:
     return changed
 
 
+def _usage_warn_threshold() -> float:
+    """Fraction of the DeepL character quota above which a warning is logged.
+    Override via KYRA_DEEPL_USAGE_WARN_THRESHOLD (e.g. 0.9). Default 0.8."""
+    try:
+        value = float(os.environ.get("KYRA_DEEPL_USAGE_WARN_THRESHOLD", "0.8"))
+    except (TypeError, ValueError):
+        return 0.8
+    if value <= 0 or value > 1:
+        return 0.8
+    return value
+
+
+def _warn_on_high_usage(usage) -> None:
+    """Log a warning when the DeepL character quota is close to being exhausted."""
+    try:
+        character = getattr(usage, "character", None)
+        if not character:
+            return
+        count = getattr(character, "count", None)
+        limit = getattr(character, "limit", None)
+        if not count or not limit or limit <= 0:
+            return
+        ratio = count / limit
+        if ratio >= _usage_warn_threshold():
+            logger.warning(
+                "[KYRA DEEPL] character quota nearly exhausted: %s/%s (%.0f%%) — "
+                "machine translation may stop working soon",
+                count,
+                limit,
+                ratio * 100,
+            )
+    except Exception as exc:
+        logger.debug("[KYRA DEEPL] usage threshold check failed: %s", exc)
+
+
+def _is_kyra_glossary(g, known_ids) -> bool:
+    """Only treat a DeepL glossary as ours if it carries our name or one of the
+    glossary IDs we previously stored. Prevents deleting glossaries that belong
+    to other FZJ uses of the same DeepL API key."""
+    try:
+        if getattr(g, "glossary_id", None) in known_ids:
+            return True
+        return getattr(g, "name", None) == GLOSSARY_NAME
+    except Exception:
+        return False
+
+
 def _cleanup_old_glossaries(client) -> None:
-    """Delete ALL glossaries on the account to free quota for new ones."""
-    # Clean up ALL bilingual glossaries (not just ours — free tier has strict limits)
+    """Delete only the glossaries managed by Kyra (matched by name GLOSSARY_NAME
+    or by a previously stored glossary ID), so that glossaries belonging to other
+    uses of the same DeepL account are never removed."""
+    known_ids = set(_get_glossary_ids().values())
+
     try:
         glossaries = client.list_glossaries()
-        logger.info("[KYRA DEEPL] found %d bilingual glossaries to clean up", len(glossaries))
-        for g in glossaries:
+        own = [g for g in glossaries if _is_kyra_glossary(g, known_ids)]
+        logger.info(
+            "[KYRA DEEPL] found %d bilingual glossaries, %d owned by Kyra to clean up",
+            len(glossaries),
+            len(own),
+        )
+        for g in own:
             try:
                 client.delete_glossary(g.glossary_id)
                 logger.info("[KYRA DEEPL] deleted glossary %s (%s)", g.glossary_id, g.name)
@@ -341,10 +519,11 @@ def _cleanup_old_glossaries(client) -> None:
     except Exception as exc:
         logger.warning("[KYRA DEEPL] could not list glossaries: %s", exc)
 
-    # Also clean up any multilingual glossaries (from previous attempts)
     try:
         glossaries = client.list_multilingual_glossaries()
         for g in glossaries:
+            if not _is_kyra_glossary(g, known_ids):
+                continue
             try:
                 client.delete_multilingual_glossary(g.glossary_id)
                 logger.info("[KYRA DEEPL] deleted multilingual glossary %s (%s)", g.glossary_id, g.name)
@@ -354,17 +533,27 @@ def _cleanup_old_glossaries(client) -> None:
         pass  # multilingual API may not be available on free tier
 
 
+def _is_free_plan() -> bool:
+    """Check if the DeepL API key is a Free plan key (ends with ':fx')."""
+    key = _get_deepl_api_key()
+    return key.strip().endswith(":fx")
+
+
 def sync_glossary_to_deepl() -> Optional[str]:
     """
     Sync all local glossary entries to DeepL as bilingual glossaries (v2 API).
-    Creates one glossary per language pair. Returns first glossary_id or None.
+    - Free plan: delete old glossary, create new one (glossaries are immutable)
+    - Pro plan: same approach, but could be optimized in the future
+    Returns first glossary_id or None.
     """
     client = _get_deepl_client()
     if client is None:
         logger.warning("[KYRA DEEPL] cannot sync glossary: no client")
         return None
 
-    # Log usage for diagnostics
+    is_free = _is_free_plan()
+    logger.info("[KYRA DEEPL] sync glossary (plan: %s)", "free" if is_free else "pro")
+
     try:
         usage = client.get_usage()
         logger.info(
@@ -373,19 +562,23 @@ def sync_glossary_to_deepl() -> Optional[str]:
             usage.character.limit if usage.character else "?",
             _get_deepl_api_key()[:8],
         )
+        _warn_on_high_usage(usage)
     except Exception as exc:
         logger.warning("[KYRA DEEPL] could not check usage: %s", exc)
 
     store = _get_glossary_store()
-    if not store:
-        logger.info("[KYRA DEEPL] no glossary entries to sync")
+
+    if not store or all(not entries for entries in store.values()):
+        logger.info("[KYRA DEEPL] no glossary entries — cleaning up remote glossaries")
+        _cleanup_old_glossaries(client)
+        _set_glossary_ids({})
         return None
 
-    # Delete ALL old glossaries first
+    # Delete ALL old glossaries first (required for both Free and Pro,
+    # because DeepL glossaries are immutable — you can't update entries)
     _cleanup_old_glossaries(client)
     _set_glossary_ids({})
 
-    # Create one bilingual glossary per language pair (v2 API)
     new_ids: Dict[str, str] = {}
     first_id = None
 
@@ -425,10 +618,6 @@ def sync_glossary_to_deepl() -> Optional[str]:
     logger.info("[KYRA DEEPL] synced %d glossaries: %s", len(new_ids), new_ids)
     return first_id
 
-
-# ---------------------------------------------------------------------------
-# REST API Service
-# ---------------------------------------------------------------------------
 
 def import_glossary_from_csv(
     csv_data: str, source_lang: str, target_lang: str
@@ -478,12 +667,10 @@ class AIGlossaryService(Service):
         source_lang = self.request.get("source", "de")
         target_lang = self.request.get("target", "en")
 
-        # Include DeepL diagnostics + pull entries from DeepL
         deepl_status = {"available": False}
         client = _get_deepl_client()
         if client:
             deepl_status["available"] = True
-            # Pull entries from DeepL into local store
             try:
                 pulled = _pull_entries_from_deepl(client)
                 deepl_status["pulled_entries"] = pulled
@@ -501,7 +688,6 @@ class AIGlossaryService(Service):
             except Exception:
                 deepl_status["glossary_count"] = 0
 
-        # Read entries AFTER pull so they include DeepL data
         entries = get_glossary_entries(source_lang, target_lang)
 
         return {
@@ -516,7 +702,6 @@ class AIGlossaryService(Service):
     def _handle_post(self):
         data = json_body(self.request) or {}
 
-        # CSV import mode
         csv_data = data.get("csv_data")
         if isinstance(csv_data, str) and csv_data.strip():
             source_lang = data.get("source_lang", "de")
@@ -530,7 +715,6 @@ class AIGlossaryService(Service):
                 "imported": len(entries),
             }
 
-        # Single entry mode
         source_term = data.get("source_term")
         target_term = data.get("target_term")
         source_lang = data.get("source_lang", "de")
