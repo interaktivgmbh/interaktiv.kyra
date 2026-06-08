@@ -15,6 +15,42 @@ BLOCK_DYNAMIC_SLATE_FIELDS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Link-outcome capture
+#
+# Records, per translated object, which internal links were automatically
+# switched to the target-language version ("rewritten") and which were kept
+# because no target-language version exists ("kept"). Used sequentially in the
+# main thread (link rewriting runs after the parallel text translation), so a
+# simple module-level list is sufficient.
+# ---------------------------------------------------------------------------
+
+_link_capture: Optional[list] = None
+
+
+def start_link_capture() -> None:
+    """Begin collecting internal-link rewrite outcomes for the current object."""
+    global _link_capture
+    _link_capture = []
+
+
+def stop_link_capture() -> list:
+    """Return the collected link outcomes and stop collecting."""
+    global _link_capture
+    outcomes = _link_capture if _link_capture is not None else []
+    _link_capture = None
+    return outcomes
+
+
+def _record_link(outcome: str, original: str, label: Optional[str] = None) -> None:
+    if _link_capture is None:
+        return
+    try:
+        _link_capture.append({"outcome": outcome, "link": original, "label": label or ""})
+    except Exception:
+        pass
+
+
 def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[str]:
     if not isinstance(path, str) or not path.strip():
         return None
@@ -66,7 +102,9 @@ def _resolve_internal_link_translation(path: str, target_lang: str) -> Optional[
         translated = manager.get_translation(target_lang)
         if translated is None:
             logger.info("[KYRA AI LINK] no translation found for %s -> %s", path, target_lang)
+            _record_link("kept", path, getattr(obj, "Title", lambda: "")())
             return None
+        _record_link("rewritten", path, getattr(translated, "Title", lambda: "")())
         trans_url = translated.absolute_url()
         trans_path = trans_url[len(portal_url):] if trans_url.startswith(portal_url) else trans_url
         if uid:

@@ -9,6 +9,8 @@ from interaktiv.kyra.services.translation_marker import mark_ai_translated
 from interaktiv.kyra.services.ai_translation_links import (
     _resolve_internal_link_translation,
     _translate_links_in_blocks,
+    start_link_capture,
+    stop_link_capture,
 )
 from interaktiv.kyra.services.ai_translation_text import (
     _apply_glossary_substitution,
@@ -670,6 +672,9 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     for item in targets:
+        # Start capturing internal-link rewrite outcomes for this object so the
+        # report can show which links were switched vs. kept (see link module).
+        start_link_capture()
         rel = _rel_path(item)
         rel_parts = [p for p in rel.split("/") if p]
         if (not source_lang or not source_lang.strip()) and rel_parts:
@@ -1193,6 +1198,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
             if gateway_available
             else "Copied content (gateway unavailable)"
         )
+        # Read which internal links were switched to the target language vs. kept
+        # (no target-language version) — surfaced to editors in the report.
+        link_outcomes = stop_link_capture()
+        links_rewritten = sum(1 for o in link_outcomes if o.get("outcome") == "rewritten")
+        links_kept = sum(1 for o in link_outcomes if o.get("outcome") == "kept")
         details.append(
             {
                 "source": _rel_path(item),
@@ -1201,6 +1211,11 @@ def _apply_translation(obj, payload: Dict[str, Any]) -> Dict[str, Any]:
                 "note": note,
                 "machine_translated": True,
                 "gateway_used": bool(gateway_available),
+                "links": {
+                    "rewritten": links_rewritten,
+                    "kept": links_kept,
+                    "items": link_outcomes,
+                },
             }
         )
 
